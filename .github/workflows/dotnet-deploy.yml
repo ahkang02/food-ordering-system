@@ -77,6 +77,11 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Debug AWS identity
+        run: |
+          echo "AWS_SESSION_TOKEN set? -> ${AWS_SESSION_TOKEN:+yes}"
+          aws sts get-caller-identity || true
+
       - name: Upload to S3
         run: |
           DEPLOYMENT_VERSION=$(date +%Y%m%d-%H%M%S)-${{ github.sha }}
