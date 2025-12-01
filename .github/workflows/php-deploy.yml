@@ -53,14 +53,14 @@ jobs:
       run: |
         DEPLOYMENT_VERSION=$(date +%Y%m%d-%H%M%S)-${{ github.sha }}
         DEPLOYMENT_KEY="php-deployments/$DEPLOYMENT_VERSION.zip"
-        aws s3 cp php-deployment-package.zip s3://${{ secrets.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY
+        aws s3 cp php-deployment-package.zip s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY
         echo "DEPLOYMENT_KEY=$DEPLOYMENT_KEY" >> $GITHUB_ENV
-        echo "Deployed to S3: s3://${{ secrets.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY"
+        echo "Deployed to S3: s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY"
 
     - name: Deploy to EC2 via SSM
       run: |
         INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
-          --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
+          --auto-scaling-group-names ${{ vars.ASG_NAME }} \
           --query 'AutoScalingGroups[0].Instances[*].InstanceId' \
           --output text)
         
@@ -73,7 +73,7 @@ jobs:
           PARAMS_FILE=$(mktemp)
           printf "%s\n" "{" "  \"commands\": [" \
             "    \"cd /var/www/html/php-food-ordering\"," \
-            "    \"sudo aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY ./deployment-package.zip\"," \
+            "    \"sudo aws s3 cp s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY ./deployment-package.zip\"," \
             "    \"sudo unzip -o deployment-package.zip\"," \
             "    \"sudo chown -R www-data:www-data /var/www/html/php-food-ordering\"," \
             "    \"sudo chmod -R 755 /var/www/html/php-food-ordering\"," \
@@ -102,7 +102,7 @@ jobs:
     - name: Health check
       run: |
         sleep 30
-        ALB_DNS=${{ secrets.ALB_DNS_NAME }}
+        ALB_DNS=${{ vars.ALB_DNS_NAME }}
         response=$(curl -s -o /dev/null -w "%{http_code}" http://$ALB_DNS/api/menu)
         if [ "$response" != "200" ]; then
           echo "Health check failed with status: $response"
