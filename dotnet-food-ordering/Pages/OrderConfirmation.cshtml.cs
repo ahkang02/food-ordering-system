@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.AspNetCore.Mvc;
 
 namespace FoodOrdering.Pages;
 
@@ -9,6 +10,7 @@ public class OrderConfirmationModel : PageModel
 
     public void OnGet()
     {
+        // Intentionally left blank: page model only needs OrderId bound for the view.
     }
 }
 

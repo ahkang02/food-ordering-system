@@ -61,7 +61,7 @@ public class DataService
             var menuItem = GetMenuItem(cartItem.MenuItemId);
             if (menuItem != null)
             {
-                order.Items.Add(new OrderItem
+                order.OrderItems.Add(new OrderItem
                 {
                     MenuItemId = menuItem.Id,
                     MenuItemName = menuItem.Name,
