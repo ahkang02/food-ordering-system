@@ -1,6 +1,6 @@
 terraform {
   required_version = ">= 1.0"
-  
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -30,26 +30,26 @@ data "aws_availability_zones" "available" {
 module "vpc" {
   source = "./modules/vpc"
 
-  vpc_cidr             = var.vpc_cidr
-  availability_zones   = data.aws_availability_zones.available.names
-  environment          = var.environment
-  project_name         = var.project_name
+  vpc_cidr           = var.vpc_cidr
+  availability_zones = data.aws_availability_zones.available.names
+  environment        = var.environment
+  project_name       = var.project_name
 }
 
 # S3 Module
 module "s3" {
   source = "./modules/s3"
 
-  bucket_name   = var.s3_bucket_name
-  environment   = var.environment
-  project_name  = var.project_name
+  bucket_name  = var.s3_bucket_name
+  environment  = var.environment
+  project_name = var.project_name
 }
 
 # RDS Module
 module "rds" {
   source = "./modules/rds"
 
-  vpc_id                = module.vpc.vpc_id
+  vpc_id                 = module.vpc.vpc_id
   private_subnet_ids     = module.vpc.private_subnet_ids
   db_instance_class      = var.db_instance_class
   db_allocated_storage   = var.db_allocated_storage

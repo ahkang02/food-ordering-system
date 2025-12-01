@@ -35,20 +35,11 @@ jobs:
         run: |
           cd dotnet-food-ordering
           echo "Updating appsettings.json with RDS endpoint..."
-          python - << 'PY'
-            import json
-            import os
-            from pathlib import Path
-
-            path = Path("appsettings.json")
-            data = json.loads(path.read_text())
-
-            conn = f"Server={os.environ['DB_ENDPOINT']};Database=foodordering;User Id={os.environ['DB_USERNAME']};Password={os.environ['DB_PASSWORD']};"
-            data.setdefault("ConnectionStrings", {})
-            data["ConnectionStrings"]["DefaultConnection"] = conn
-
-            path.write_text(json.dumps(data, indent=2))
-          PY
+          # write a small python script and run it to avoid YAML multiline quoting issues
+          TMP_PY=$(mktemp --suffix=.py)
+          printf "%s\n" "import json, os" "from pathlib import Path" "p=Path('appsettings.json')" "data=json.loads(p.read_text())" "conn='Server='+os.environ.get('DB_ENDPOINT','')+';Database=foodordering;User Id='+os.environ.get('DB_USERNAME','')+';Password='+os.environ.get('DB_PASSWORD','')+';'" "data.setdefault('ConnectionStrings', {})" "data['ConnectionStrings']['DefaultConnection']=conn" "p.write_text(json.dumps(data, indent=2))" > "$TMP_PY"
+          python "$TMP_PY"
+          rm -f "$TMP_PY"
 
       - name: Restore dependencies
         working-directory: ./dotnet-food-ordering

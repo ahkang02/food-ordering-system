@@ -83,10 +83,10 @@ resource "aws_launch_template" "main" {
 
 # Auto Scaling Group
 resource "aws_autoscaling_group" "main" {
-  name                = "${var.project_name}-${var.environment}-asg"
-  vpc_zone_identifier = var.public_subnet_ids
-  target_group_arns   = [var.alb_target_group_arn]
-  health_check_type   = "ELB"
+  name                      = "${var.project_name}-${var.environment}-asg"
+  vpc_zone_identifier       = var.public_subnet_ids
+  target_group_arns         = [var.alb_target_group_arn]
+  health_check_type         = "ELB"
   health_check_grace_period = 300
 
   min_size         = var.min_size

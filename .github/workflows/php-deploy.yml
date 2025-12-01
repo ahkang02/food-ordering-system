@@ -62,27 +62,35 @@ jobs:
         
         for INSTANCE_ID in $INSTANCE_IDS; do
           echo "Deploying to instance: $INSTANCE_ID"
+
+          # Create a temporary parameters JSON file for SSM to avoid YAML/quoted inline mapping issues
+          PARAMS_FILE=$(mktemp)
+          printf "%s\n" "{" "  \"commands\": [" \
+            "    \"cd /var/www/html/php-food-ordering\"," \
+            "    \"sudo aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY ./deployment-package.zip\"," \
+            "    \"sudo unzip -o deployment-package.zip\"," \
+            "    \"sudo chown -R www-data:www-data /var/www/html/php-food-ordering\"," \
+            "    \"sudo chmod -R 755 /var/www/html/php-food-ordering\"," \
+            "    \"sudo systemctl reload apache2 || sudo systemctl reload nginx\"," \
+            "    \"echo 'Deployment completed successfully'\"" \
+            "  ]" "}" > "$PARAMS_FILE"
+
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=[
-              'cd /var/www/html/php-food-ordering',
-              'sudo aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY ./deployment-package.zip',
-              'sudo unzip -o deployment-package.zip',
-              'sudo chown -R www-data:www-data /var/www/html/php-food-ordering',
-              'sudo chmod -R 755 /var/www/html/php-food-ordering',
-              'sudo systemctl reload apache2 || sudo systemctl reload nginx',
-              'echo \"Deployment completed successfully\"'
-            ]" \
+            --parameters file://"$PARAMS_FILE" \
             --output text \
             --query 'Command.CommandId')
-          
+
           echo "Command ID: $COMMAND_ID"
-          
+
           # Wait for command to complete
           aws ssm wait command-executed \
             --command-id "$COMMAND_ID" \
             --instance-id "$INSTANCE_ID" || true
+
+          # cleanup
+          rm -f "$PARAMS_FILE"
         done
 
     - name: Health check
