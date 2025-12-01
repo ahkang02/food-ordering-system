@@ -1,0 +1,70 @@
+# .NET
+dotnet-food-ordering/bin/
+dotnet-food-ordering/obj/
+dotnet-food-ordering/publish/
+dotnet-food-ordering/.vs/
+dotnet-food-ordering/*.user
+dotnet-food-ordering/*.suo
+dotnet-food-ordering/.vs/
+dotnet-food-ordering/.vscode/
+
+# PHP
+php-food-ordering/api/data.json
+php-food-ordering/.htaccess.bak
+
+# Terraform/OpenTofu
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfvars
+terraform/*.tfvars.json
+terraform/.terraformrc
+terraform/terraform.rc
+terraform/tofu.rc
+terraform/crash.log
+terraform/crash.*.log
+terraform/override.tf
+terraform/override.tf.json
+terraform/*_override.tf
+terraform/*_override.tf.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.zip
+*.tar.gz
+*.dll
+*.exe
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+

@@ -1,0 +1,82 @@
+@page
+@model FoodOrdering.Pages.IndexModel
+@{
+    ViewData["Title"] = "Menu";
+}
+
+<div class="menu-container">
+    <h1 class="page-title">🍕 Our Menu</h1>
+    
+    <div class="category-filter">
+        <button class="filter-btn active" data-category="all">All</button>
+        @foreach (var category in Model.Categories)
+        {
+            <button class="filter-btn" data-category="@category">@category</button>
+        }
+    </div>
+
+    <div class="menu-grid" id="menu-grid">
+        @foreach (var item in Model.MenuItems)
+        {
+            <div class="menu-item" data-category="@item.Category">
+                <div class="menu-item-image">
+                    <img src="@item.ImageUrl" alt="@item.Name" onerror="this.style.display='none'; this.parentElement.innerHTML='@GetFoodEmoji(item.Category)';">
+                </div>
+                <div class="menu-item-content">
+                    <div class="menu-item-header">
+                        <h3 class="menu-item-name">@item.Name</h3>
+                        <span class="menu-item-price">$@item.Price.ToString("F2")</span>
+                    </div>
+                    <p class="menu-item-description">@item.Description</p>
+                    <span class="menu-item-category">@item.Category</span>
+                    <div class="menu-item-actions">
+                        <button class="btn-add-cart" onclick="addToCart(@item.Id, '@item.Name', @item.Price)">
+                            Add to Cart
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@functions {
+    string GetFoodEmoji(string category)
+    {
+        return category switch
+        {
+            "Pizza" => "🍕",
+            "Burgers" => "🍔",
+            "Salads" => "🥗",
+            "Sides" => "🍟",
+            "Drinks" => "🥤",
+            "Desserts" => "🍰",
+            _ => "🍽️"
+        };
+    }
+}
+
+@section Scripts {
+    <script>
+        // Category filtering
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const category = this.dataset.category;
+                
+                // Update active button
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                // Filter items
+                document.querySelectorAll('.menu-item').forEach(item => {
+                    if (category === 'all' || item.dataset.category === category) {
+                        item.style.display = 'block';
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+            });
+        });
+    </script>
+}
+

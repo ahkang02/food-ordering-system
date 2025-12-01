@@ -1,0 +1,116 @@
+name: Deploy .NET Core Application
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'dotnet-food-ordering/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  DOTNET_VERSION: '9.0.x'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      working-directory: ./dotnet-food-ordering
+      run: dotnet restore
+
+    - name: Build application
+      working-directory: ./dotnet-food-ordering
+      run: dotnet build --configuration Release --no-restore
+
+    - name: Publish application
+      working-directory: ./dotnet-food-ordering
+      run: dotnet publish --configuration Release --output ./publish --no-build
+
+    - name: Create deployment package
+      run: |
+        cd dotnet-food-ordering/publish
+        zip -r ../../dotnet-deployment-package.zip .
+        cd ../..
+        echo "Package created: dotnet-deployment-package.zip"
+        ls -lh dotnet-deployment-package.zip
+
+    - name: Upload artifact to GitHub
+      uses: actions/upload-artifact@v4
+      with:
+        name: dotnet-deployment-package
+        path: dotnet-deployment-package.zip
+        retention-days: 30
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Upload to S3
+      run: |
+        DEPLOYMENT_VERSION=$(date +%Y%m%d-%H%M%S)-${{ github.sha }}
+        DEPLOYMENT_KEY="dotnet-deployments/$DEPLOYMENT_VERSION.zip"
+        aws s3 cp dotnet-deployment-package.zip s3://${{ secrets.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY
+        echo "DEPLOYMENT_KEY=$DEPLOYMENT_KEY" >> $GITHUB_ENV
+        echo "Deployed to S3: s3://${{ secrets.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY"
+
+    - name: Deploy to EC2 via SSM
+      run: |
+        INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+          --auto-scaling-group-names ${{ secrets.ASG_NAME }} \
+          --query 'AutoScalingGroups[0].Instances[*].InstanceId' \
+          --output text)
+        
+        DEPLOYMENT_KEY="${{ env.DEPLOYMENT_KEY }}"
+        echo "Deploying version: $DEPLOYMENT_KEY"
+        
+        for INSTANCE_ID in $INSTANCE_IDS; do
+          echo "Deploying to instance: $INSTANCE_ID"
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[
+              'cd /opt/food-ordering',
+              'sudo systemctl stop foodordering || true',
+              'aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY ./deployment-package.zip',
+              'unzip -o deployment-package.zip -d ./current',
+              'sudo systemctl start foodordering',
+              'sleep 5',
+              'sudo systemctl status foodordering --no-pager'
+            ]" \
+            --output text \
+            --query 'Command.CommandId')
+          
+          echo "Command ID: $COMMAND_ID"
+          
+          # Wait for command to complete
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" || true
+        done
+
+    - name: Health check
+      run: |
+        sleep 30
+        ALB_DNS=${{ secrets.ALB_DNS_NAME }}
+        response=$(curl -s -o /dev/null -w "%{http_code}" http://$ALB_DNS)
+        if [ "$response" != "200" ]; then
+          echo "Health check failed with status: $response"
+          exit 1
+        fi
+        echo "Deployment successful!"
+

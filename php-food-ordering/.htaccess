@@ -1,0 +1,15 @@
+RewriteEngine On
+RewriteBase /api/
+
+# Handle CORS preflight
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ $1 [R=200,L]
+
+# Route to menu.php
+RewriteCond %{REQUEST_URI} ^/api/menu
+RewriteRule ^menu(.*)$ menu.php [QSA,L]
+
+# Route to orders.php
+RewriteCond %{REQUEST_URI} ^/api/orders
+RewriteRule ^orders(.*)$ orders.php [QSA,L]
+

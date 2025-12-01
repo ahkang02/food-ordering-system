@@ -1,0 +1,123 @@
+@page
+@model FoodOrdering.Pages.CartModel
+@{
+    ViewData["Title"] = "Cart";
+}
+
+<div class="cart-container">
+    <h1 class="page-title">🛒 Your Cart</h1>
+
+    <div id="cart-items">
+        <div id="cart-content">
+            <div class="empty-cart" id="empty-cart">
+                <p>Your cart is empty</p>
+                <a href="/" class="btn-primary">Browse Menu</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCart();
+        });
+
+        async function loadCart() {
+            const cart = getCart();
+            const container = document.getElementById('cart-content');
+            const emptyCart = document.getElementById('empty-cart');
+
+            if (cart.length === 0) {
+                emptyCart.style.display = 'block';
+                return;
+            }
+
+            emptyCart.style.display = 'none';
+
+            // Fetch menu items to get current prices
+            const menuItems = await fetchMenuItems();
+            let total = 0;
+
+            const itemsHtml = cart.map(item => {
+                const menuItem = menuItems.find(m => m.id === item.menuItemId);
+                if (!menuItem) return '';
+
+                const itemTotal = menuItem.price * item.quantity;
+                total += itemTotal;
+
+                return `
+                    <div class="cart-item" data-item-id="${item.menuItemId}">
+                        <div class="cart-item-info">
+                            <h3 class="cart-item-name">${item.name}</h3>
+                            <p class="cart-item-price">$${menuItem.price.toFixed(2)} each</p>
+                        </div>
+                        <div class="quantity-control">
+                            <button class="quantity-btn" onclick="updateQuantity(${item.menuItemId}, ${item.quantity - 1})">-</button>
+                            <span class="quantity-display">${item.quantity}</span>
+                            <button class="quantity-btn" onclick="updateQuantity(${item.menuItemId}, ${item.quantity + 1})">+</button>
+                        </div>
+                        <div class="cart-item-total">$${itemTotal.toFixed(2)}</div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = `
+                <div class="cart-items-list">
+                    ${itemsHtml}
+                </div>
+                <div class="cart-summary">
+                    <div class="cart-total">
+                        <p>Total: <span id="cart-total">$${total.toFixed(2)}</span></p>
+                    </div>
+                    <a href="/Checkout" class="btn-primary btn-large">Proceed to Checkout</a>
+                </div>
+            `;
+        }
+
+        async function fetchMenuItems() {
+            try {
+                const response = await fetch('/api/menu');
+                return await response.json();
+            } catch (error) {
+                console.error('Error fetching menu:', error);
+                return [];
+            }
+        }
+
+        function updateQuantity(itemId, newQuantity) {
+            if (newQuantity <= 0) {
+                removeFromCart(itemId);
+            } else {
+                const cart = getCart();
+                const item = cart.find(i => i.menuItemId === itemId);
+                if (item) {
+                    item.quantity = newQuantity;
+                    saveCart(cart);
+                    loadCart();
+                }
+            }
+        }
+
+        function removeFromCart(itemId) {
+            const cart = getCart();
+            const filtered = cart.filter(i => i.menuItemId !== itemId);
+            saveCart(filtered);
+            loadCart();
+        }
+
+        function getCart() {
+            const cartJson = sessionStorage.getItem('cart');
+            return cartJson ? JSON.parse(cartJson) : [];
+        }
+
+        function saveCart(cart) {
+            sessionStorage.setItem('cart', JSON.stringify(cart));
+            // Update cart badge
+            if (typeof updateCartBadge === 'function') {
+                updateCartBadge();
+            }
+        }
+    </script>
+}
+

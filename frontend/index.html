@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Food Ordering System</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>🍕 Food Ordering</h1>
+            <nav>
+                <button class="nav-btn active" data-page="menu">Menu</button>
+                <button class="nav-btn" data-page="cart">
+                    Cart <span class="cart-count">0</span>
+                </button>
+                <button class="nav-btn" data-page="orders">Orders</button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Menu Page -->
+        <section id="menu-page" class="page active">
+            <div class="page-header">
+                <h2>Our Menu</h2>
+                <div class="category-filter">
+                    <button class="filter-btn active" data-category="all">All</button>
+                </div>
+            </div>
+            <div id="menu-items" class="menu-grid">
+                <div class="loading">Loading menu...</div>
+            </div>
+        </section>
+
+        <!-- Cart Page -->
+        <section id="cart-page" class="page">
+            <div class="page-header">
+                <h2>Your Cart</h2>
+            </div>
+            <div id="cart-content">
+                <div class="empty-cart">
+                    <p>Your cart is empty</p>
+                    <button class="btn-primary" onclick="showPage('menu')">Browse Menu</button>
+                </div>
+            </div>
+            <div id="cart-summary" class="cart-summary hidden">
+                <div class="customer-info">
+                    <h3>Delivery Information</h3>
+                    <input type="text" id="customer-name" placeholder="Your Name" required>
+                    <input type="tel" id="customer-phone" placeholder="Phone Number" required>
+                    <textarea id="delivery-address" placeholder="Delivery Address" rows="3" required></textarea>
+                </div>
+                <div class="cart-total">
+                    <p>Total: <span id="cart-total-amount">$0.00</span></p>
+                    <button class="btn-primary btn-large" id="place-order-btn">Place Order</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Orders Page -->
+        <section id="orders-page" class="page">
+            <div class="page-header">
+                <h2>Your Orders</h2>
+                <button class="btn-secondary" onclick="loadOrders()">Refresh</button>
+            </div>
+            <div id="orders-list" class="orders-list">
+                <div class="loading">Loading orders...</div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Modal for Order Success -->
+    <div id="order-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>Order Placed Successfully! 🎉</h2>
+            <p>Order ID: <strong id="order-id-display"></strong></p>
+            <p>Your order is being prepared. You can track it in the Orders section.</p>
+            <button class="btn-primary" onclick="closeOrderModal()">OK</button>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/cart.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
+

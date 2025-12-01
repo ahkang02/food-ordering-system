@@ -1,0 +1,79 @@
+name: Deploy Infrastructure with OpenTofu
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'OpenTofu action'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+
+env:
+  AWS_REGION: us-east-1
+  TOFU_VERSION: 1.6.2
+
+jobs:
+  infrastructure:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup OpenTofu
+      uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: ${{ env.TOFU_VERSION }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: OpenTofu Init
+      working-directory: ./terraform
+      run: tofu init
+
+    - name: OpenTofu Format Check
+      working-directory: ./terraform
+      run: tofu fmt -check -recursive
+
+    - name: OpenTofu Validate
+      working-directory: ./terraform
+      run: tofu validate
+
+    - name: OpenTofu Plan
+      if: github.event_name == 'push' || github.event.inputs.action == 'plan'
+      working-directory: ./terraform
+      run: tofu plan -out=tfplan
+      continue-on-error: true
+
+    - name: OpenTofu Apply
+      if: github.event.inputs.action == 'apply'
+      working-directory: ./terraform
+      run: tofu apply -auto-approve tfplan
+
+    - name: OpenTofu Destroy
+      if: github.event.inputs.action == 'destroy'
+      working-directory: ./terraform
+      run: tofu destroy -auto-approve
+
+    - name: Output OpenTofu Outputs
+      if: github.event.inputs.action == 'apply'
+      working-directory: ./terraform
+      run: tofu output -json
+

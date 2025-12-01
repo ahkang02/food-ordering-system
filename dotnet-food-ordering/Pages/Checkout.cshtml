@@ -1,0 +1,160 @@
+@page
+@model FoodOrdering.Pages.CheckoutModel
+@{
+    ViewData["Title"] = "Checkout";
+}
+
+<div class="checkout-container">
+    <h1 class="page-title">💳 Checkout</h1>
+
+    <div class="checkout-content">
+        <div class="order-summary">
+            <h2>Order Summary</h2>
+            <div id="order-items">
+                <!-- Items will be populated by JavaScript -->
+            </div>
+            <div class="order-total">
+                <p>Total: <span id="checkout-total">$0.00</span></p>
+            </div>
+        </div>
+
+        <form id="checkout-form" class="checkout-form">
+            <h2>Delivery Information</h2>
+            
+            <div class="form-group">
+                <label for="customerName">Name *</label>
+                <input type="text" id="customerName" name="CustomerName" required>
+            </div>
+
+            <div class="form-group">
+                <label for="customerPhone">Phone *</label>
+                <input type="tel" id="customerPhone" name="CustomerPhone" required>
+            </div>
+
+            <div class="form-group">
+                <label for="deliveryAddress">Delivery Address *</label>
+                <textarea id="deliveryAddress" name="DeliveryAddress" rows="3" required></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="paymentMethod">Payment Method *</label>
+                <select id="paymentMethod" name="PaymentMethod" required>
+                    <option value="">Select payment method</option>
+                    <option value="cash">Cash on Delivery</option>
+                    <option value="card">Credit/Debit Card</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn-primary btn-large" id="place-order-btn">Place Order</button>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // Load cart and display items
+        document.addEventListener('DOMContentLoaded', function() {
+            const cart = getCart();
+            if (cart.length === 0) {
+                window.location.href = '/';
+                return;
+            }
+
+            displayCartItems(cart);
+        });
+
+        function getCart() {
+            const cartJson = sessionStorage.getItem('cart');
+            return cartJson ? JSON.parse(cartJson) : [];
+        }
+
+        async function displayCartItems(cart) {
+            // Fetch menu items to get names and prices
+            const menuItems = await fetchMenuItems();
+            const itemsContainer = document.getElementById('order-items');
+            let total = 0;
+
+            itemsContainer.innerHTML = cart.map(item => {
+                const menuItem = menuItems.find(m => m.id === item.menuItemId);
+                if (!menuItem) return '';
+                
+                const itemTotal = menuItem.price * item.quantity;
+                total += itemTotal;
+                
+                return `
+                    <div class="order-item-row">
+                        <span>${menuItem.name} x ${item.quantity}</span>
+                        <span>$${itemTotal.toFixed(2)}</span>
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('checkout-total').textContent = `$${total.toFixed(2)}`;
+        }
+
+        async function fetchMenuItems() {
+            try {
+                const response = await fetch('/api/menu');
+                return await response.json();
+            } catch (error) {
+                console.error('Error fetching menu:', error);
+                return [];
+            }
+        }
+
+        // Handle form submission
+        document.getElementById('checkout-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const cart = getCart();
+            if (cart.length === 0) {
+                alert('Your cart is empty');
+                window.location.href = '/';
+                return;
+            }
+
+            const btn = document.getElementById('place-order-btn');
+            btn.disabled = true;
+            btn.textContent = 'Placing Order...';
+
+            try {
+                const orderData = {
+                    cartItems: cart.map(item => ({
+                        menuItemId: item.menuItemId,
+                        quantity: item.quantity
+                    })),
+                    customerName: document.getElementById('customerName').value,
+                    customerPhone: document.getElementById('customerPhone').value,
+                    deliveryAddress: document.getElementById('deliveryAddress').value
+                };
+
+                const response = await fetch('/api/orders', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(orderData)
+                });
+
+                if (response.ok) {
+                    const order = await response.json();
+                    // Clear cart
+                    sessionStorage.removeItem('cart');
+                    // Redirect to confirmation
+                    window.location.href = `/OrderConfirmation?orderId=${order.id}`;
+                } else {
+                    const error = await response.json();
+                    alert('Failed to place order: ' + (error.error || 'Unknown error'));
+                    btn.disabled = false;
+                    btn.textContent = 'Place Order';
+                }
+            } catch (error) {
+                console.error('Error placing order:', error);
+                alert('Failed to place order. Please try again.');
+                btn.disabled = false;
+                btn.textContent = 'Place Order';
+            }
+        });
+    </script>
+}
+

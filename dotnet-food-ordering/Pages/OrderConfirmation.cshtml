@@ -1,0 +1,18 @@
+@page
+@model FoodOrdering.Pages.OrderConfirmationModel
+@{
+    ViewData["Title"] = "Order Confirmed";
+}
+
+<div class="confirmation-container">
+    <div class="confirmation-content">
+        <div class="success-icon">✅</div>
+        <h1>Order Placed Successfully!</h1>
+        <p class="order-id">Order ID: <strong>#@Model.OrderId</strong></p>
+        <p class="confirmation-message">
+            Thank you for your order! Your food is being prepared and will be delivered soon.
+        </p>
+        <a href="/" class="btn-primary">Back to Menu</a>
+    </div>
+</div>
+
