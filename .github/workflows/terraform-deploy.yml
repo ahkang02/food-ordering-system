@@ -24,6 +24,7 @@ env:
 jobs:
   infrastructure:
     runs-on: ubuntu-latest
+    environment: development
     permissions:
       contents: read
       id-token: write

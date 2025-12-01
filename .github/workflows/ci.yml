@@ -126,13 +126,13 @@ jobs:
       working-directory: ./terraform
       run: tofu fmt -check -recursive
 
-    - name: OpenTofu Validate
-      working-directory: ./terraform
-      run: tofu validate
-
     - name: OpenTofu Init
       working-directory: ./terraform
       run: tofu init -backend=false
+
+    - name: OpenTofu Validate
+      working-directory: ./terraform
+      run: tofu validate
 
     - name: OpenTofu Plan (dry-run)
       working-directory: ./terraform

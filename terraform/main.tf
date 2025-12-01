@@ -7,12 +7,6 @@ terraform {
       version = "~> 5.0"
     }
   }
-
-  backend "s3" {
-    bucket = "your-terraform-state-bucket"
-    key    = "food-ordering/tofu.tfstate"
-    region = "us-east-1"
-  }
 }
 
 provider "aws" {
@@ -108,26 +102,3 @@ module "cloudwatch" {
   alb_arn      = module.alb.alb_arn
   asg_name     = module.ec2.asg_name
 }
-
-# Outputs
-output "vpc_id" {
-  value       = module.vpc.vpc_id
-  description = "VPC ID"
-}
-
-output "alb_dns_name" {
-  value       = module.alb.alb_dns_name
-  description = "Application Load Balancer DNS name"
-}
-
-output "rds_endpoint" {
-  value       = module.rds.db_endpoint
-  description = "RDS endpoint"
-  sensitive   = true
-}
-
-output "s3_bucket_name" {
-  value       = module.s3.bucket_name
-  description = "S3 bucket name"
-}
-

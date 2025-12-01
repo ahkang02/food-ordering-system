@@ -81,3 +81,9 @@ variable "application_type" {
   type        = string
 }
 
+variable "instance_profile_name" {
+  description = "Existing IAM instance profile name to attach to EC2 instances (e.g., Learner Lab profile)"
+  type        = string
+  default     = "LabInstanceProfile"
+}
+

@@ -15,6 +15,7 @@ env:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment: development
     
     steps:
     - name: Checkout code
@@ -57,7 +58,6 @@ jobs:
           --query 'AutoScalingGroups[0].Instances[*].InstanceId' \
           --output text)
         
-        DEPLOYMENT_KEY="${{ env.DEPLOYMENT_KEY }}"
         echo "Deploying version: $DEPLOYMENT_KEY"
         
         for INSTANCE_ID in $INSTANCE_IDS; do

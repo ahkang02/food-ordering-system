@@ -9,78 +9,6 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
-# IAM Role for EC2 instances
-resource "aws_iam_role" "ec2" {
-  name = "${var.project_name}-${var.environment}-ec2-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
-  })
-
-  tags = {
-    Name = "${var.project_name}-${var.environment}-ec2-role"
-  }
-}
-
-# IAM Policy for EC2 instances
-resource "aws_iam_role_policy" "ec2" {
-  name = "${var.project_name}-${var.environment}-ec2-policy"
-  role = aws_iam_role.ec2.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:ListBucket"
-        ]
-        Resource = [
-          "arn:aws:s3:::${var.s3_bucket_name}",
-          "arn:aws:s3:::${var.s3_bucket_name}/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ssm:UpdateInstanceInformation",
-          "ssm:SendCommand"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "cloudwatch:PutMetricData",
-          "cloudwatch:GetMetricStatistics",
-          "cloudwatch:ListMetrics",
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-# Instance Profile
-resource "aws_iam_instance_profile" "ec2" {
-  name = "${var.project_name}-${var.environment}-ec2-profile"
-  role = aws_iam_role.ec2.name
-}
-
 # Security Group for EC2
 resource "aws_security_group" "ec2" {
   name        = "${var.project_name}-${var.environment}-ec2-sg"
@@ -129,8 +57,9 @@ resource "aws_launch_template" "main" {
   image_id      = data.aws_ami.amazon_linux.id
   instance_type = var.instance_type
 
+  # Attach existing IAM instance profile provided by Learner Lab
   iam_instance_profile {
-    name = aws_iam_instance_profile.ec2.name
+    name = var.instance_profile_name
   }
 
   vpc_security_group_ids = [aws_security_group.ec2.id]

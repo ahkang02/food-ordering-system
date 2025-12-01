@@ -58,7 +58,8 @@ resource "aws_db_instance" "main" {
   skip_final_snapshot       = true
   final_snapshot_identifier = "${var.project_name}-${var.environment}-final-snapshot-${formatdate("YYYY-MM-DD-hhmm", timestamp())}"
 
-  enabled_cloudwatch_logs_exports = ["error", "general", "slow_query"]
+  # Enable CloudWatch logs for RDS (use correct log group names)
+  enabled_cloudwatch_logs_exports = ["error", "general", "slowquery"]
 
   tags = {
     Name = "${var.project_name}-${var.environment}-rds"
