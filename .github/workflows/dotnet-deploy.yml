@@ -171,8 +171,8 @@ jobs:
           
           rm -f "$PARAMS_FILE"
           echo "Migration completed!"
-
-      - name: Health check:
+      
+      - name: "Health check"
         run: |
           sleep 30
           ALB_DNS=${{ vars.ALB_DNS_NAME }}
