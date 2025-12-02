@@ -176,17 +176,44 @@ BUCKET_NAME="bucket-food-ordering-123456"
 if aws s3 ls "s3://$BUCKET_NAME" 2>/dev/null; then
     echo "Found S3 Bucket: $BUCKET_NAME"
     
-    # Empty the bucket first (required if it has objects)
-    echo "Emptying S3 Bucket..."
-    aws s3 rm "s3://$BUCKET_NAME" --recursive 2>/dev/null || echo "Bucket already empty or error removing objects"
+    # Try to delete all object versions (handles both versioned and non-versioned buckets)
+    echo "Removing all objects and versions from bucket..."
+    
+    # Use AWS CLI with pagination to delete all versions
+    aws s3api list-object-versions --bucket "$BUCKET_NAME" --output json 2>/dev/null | \
+    python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    for version in data.get('Versions', []):
+        print(f\"{version['Key']} {version['VersionId']}\")
+    for marker in data.get('DeleteMarkers', []):
+        print(f\"{marker['Key']} {marker['VersionId']}\")
+except:
+    pass
+" | while read -r key versionId; do
+        if [ -n "$key" ] && [ -n "$versionId" ]; then
+            aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$versionId" 2>/dev/null
+        fi
+    done
+    
+    # Also try regular recursive delete for current versions
+    aws s3 rm "s3://$BUCKET_NAME" --recursive 2>/dev/null || true
     
     # Delete the bucket
     echo "Deleting S3 Bucket..."
     aws s3 rb "s3://$BUCKET_NAME" 2>/dev/null
     if [ $? -eq 0 ]; then
-        echo "S3 Bucket deleted successfully."
+        echo "✓ S3 Bucket deleted successfully."
     else
-        echo "Failed to delete S3 Bucket (may still have objects or versioning enabled)"
+        # Try alternative method
+        aws s3api delete-bucket --bucket "$BUCKET_NAME" 2>/dev/null
+        if [ $? -eq 0 ]; then
+            echo "✓ S3 Bucket deleted successfully."
+        else
+            echo "⚠️  Failed to delete S3 Bucket."
+            echo "Manual cleanup: aws s3 rb s3://$BUCKET_NAME --force"
+        fi
     fi
 else
     echo "S3 Bucket not found or already deleted."

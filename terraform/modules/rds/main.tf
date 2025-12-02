@@ -77,15 +77,17 @@ resource "aws_db_instance" "main" {
   vpc_security_group_ids = [aws_security_group.rds.id]
   publicly_accessible    = var.publicly_accessible
 
-  backup_retention_period = 7
-  backup_window           = "03:00-04:00"
-  maintenance_window      = "mon:04:00-mon:05:00"
+  # Sandbox/Learner Lab optimizations
+  multi_az                = false # Single AZ for cost savings
+  backup_retention_period = 0     # Disable automated backups
+  # backup_window         = "03:00-04:00" # Not needed when backups disabled
+  # maintenance_window    = "mon:04:00-mon:05:00" # Optional
 
   skip_final_snapshot       = true
   final_snapshot_identifier = "${var.project_name}-${var.environment}-final-snapshot-${formatdate("YYYY-MM-DD-hhmm", timestamp())}"
 
-  # Enable CloudWatch logs for RDS (use correct log group names)
-  enabled_cloudwatch_logs_exports = ["error", "general", "slowquery"]
+  # Disable CloudWatch logs for cost savings (optional)
+  # enabled_cloudwatch_logs_exports = ["error", "general", "slowquery"]
 
   tags = {
     Name = "${var.project_name}-${var.environment}-rds"
