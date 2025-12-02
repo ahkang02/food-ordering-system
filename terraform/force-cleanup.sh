@@ -170,12 +170,26 @@ fi
 
 # 12. Delete S3 Bucket
 echo "Checking S3 Bucket..."
-BUCKET_NAME="bucket-food-ordering-123456" 
-aws s3 rb "s3://$BUCKET_NAME" --force 2>/dev/null
-if [ $? -eq 0 ]; then
-    echo "S3 Bucket deleted."
+BUCKET_NAME="bucket-food-ordering-123456"
+
+# Check if bucket exists
+if aws s3 ls "s3://$BUCKET_NAME" 2>/dev/null; then
+    echo "Found S3 Bucket: $BUCKET_NAME"
+    
+    # Empty the bucket first (required if it has objects)
+    echo "Emptying S3 Bucket..."
+    aws s3 rm "s3://$BUCKET_NAME" --recursive 2>/dev/null || echo "Bucket already empty or error removing objects"
+    
+    # Delete the bucket
+    echo "Deleting S3 Bucket..."
+    aws s3 rb "s3://$BUCKET_NAME" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "S3 Bucket deleted successfully."
+    else
+        echo "Failed to delete S3 Bucket (may still have objects or versioning enabled)"
+    fi
 else
-    echo "S3 Bucket not found."
+    echo "S3 Bucket not found or already deleted."
 fi
 
 echo "---------------------------------------------------"
