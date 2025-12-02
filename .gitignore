@@ -17,7 +17,6 @@ terraform/.terraform/
 terraform/.terraform.lock.hcl
 terraform/*.tfstate
 terraform/*.tfstate.*
-terraform/*.tfvars
 terraform/*.tfvars.json
 terraform/.terraformrc
 terraform/terraform.rc
