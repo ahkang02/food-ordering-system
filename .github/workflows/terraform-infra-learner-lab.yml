@@ -65,6 +65,13 @@ jobs:
         run: |
           tofu apply -input=false -auto-approve
 
+      - name: Revert (Destroy) on Failure
+        if: failure() && inputs.action == 'apply'
+        working-directory: terraform
+        run: |
+          echo "Deployment failed. Automatically reverting resources..."
+          tofu destroy -input=false -auto-approve
+
       - name: Terraform Destroy
         if: ${{ inputs.action == 'destroy' }}
         working-directory: terraform
