@@ -79,4 +79,11 @@ jobs:
         run: |
           tofu destroy -input=false -auto-approve
 
+      - name: Force Cleanup (Orphaned Resources)
+        if: ${{ inputs.action == 'force_cleanup' }}
+        working-directory: terraform
+        run: |
+          chmod +x force-cleanup.sh
+          ./force-cleanup.sh
+
 
