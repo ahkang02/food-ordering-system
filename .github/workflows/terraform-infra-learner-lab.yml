@@ -12,6 +12,7 @@ on:
           - plan
           - apply
           - destroy
+          - force_cleanup
 
 permissions:
   contents: read
