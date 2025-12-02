@@ -12,7 +12,7 @@ db_instance_class = "db.t3.micro"
 db_allocated_storage = 20
 db_name = "foodordering"
 db_username = "admin"
-db_password = ""
+
 
 # EC2 Configuration
 instance_type = "t3.micro"

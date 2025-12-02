@@ -64,14 +64,26 @@ resource "aws_launch_template" "main" {
 
   vpc_security_group_ids = [aws_security_group.ec2.id]
 
-  user_data = base64encode(templatefile("${path.module}/user_data.sh.tpl", {
-    application_type = var.application_type
-    db_endpoint      = var.db_endpoint
-    db_name          = var.db_name
-    db_username      = var.db_username
-    db_password      = var.db_password
-    s3_bucket_name   = var.s3_bucket_name
-  }))
+  # Increase root volume size to 20GB
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size = 20
+      volume_type = "gp3"
+    }
+  }
+
+  user_data = base64encode(templatefile(
+    var.application_type == "dotnet" ? "${path.module}/user_data_dotnet.sh.tpl" : "${path.module}/user_data_php.sh.tpl",
+    {
+      application_type = var.application_type
+      db_endpoint      = var.db_endpoint
+      db_name          = var.db_name
+      db_username      = var.db_username
+      db_password      = var.db_password
+      s3_bucket_name   = var.s3_bucket_name
+    }
+  ))
 
   tag_specifications {
     resource_type = "instance"
