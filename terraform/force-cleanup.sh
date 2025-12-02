@@ -68,23 +68,47 @@ fi
 
 # 5. Delete RDS Instance
 echo "Checking RDS Instance..."
-aws rds delete-db-instance --db-instance-identifier food-ordering-production-db --skip-final-snapshot --delete-automated-backups 2>/dev/null
-if [ $? -eq 0 ]; then
-    echo "RDS deletion triggered."
+RDS_EXISTS=$(aws rds describe-db-instances --db-instance-identifier food-ordering-production-db --query "DBInstances[0].DBInstanceIdentifier" --output text 2>/dev/null)
+if [ -n "$RDS_EXISTS" ] && [ "$RDS_EXISTS" != "None" ]; then
+    echo "Deleting RDS Instance: food-ordering-production-db"
+    aws rds delete-db-instance --db-instance-identifier food-ordering-production-db --skip-final-snapshot --delete-automated-backups 2>/dev/null
+    
+    echo "Waiting for RDS deletion (this may take 5-10 minutes)..."
+    while aws rds describe-db-instances --db-instance-identifier food-ordering-production-db --query "DBInstances[0].DBInstanceIdentifier" --output text 2>/dev/null | grep -q "food-ordering-production-db"; do
+        echo -n "."
+        sleep 15
+    done
+    echo " RDS deleted."
 else
-    echo "RDS Instance not found or already deleting."
+    echo "RDS Instance not found."
 fi
 
-# 6. Delete DB Subnet Group
+# 6. Delete RDS Security Group
+echo "Checking RDS Security Group..."
+RDS_SG_ID=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=food-ordering-production-rds-sg" --query "SecurityGroups[0].GroupId" --output text 2>/dev/null)
+if [ -n "$RDS_SG_ID" ] && [ "$RDS_SG_ID" != "None" ]; then
+    echo "Deleting RDS Security Group: $RDS_SG_ID"
+    aws ec2 delete-security-group --group-id "$RDS_SG_ID" 2>/dev/null || echo "Could not delete RDS SG (may still be in use)"
+else
+    echo "RDS Security Group not found."
+fi
+
+# 7. Delete DB Subnet Group (must be after RDS deletion)
 echo "Checking DB Subnet Group..."
-aws rds delete-db-subnet-group --db-subnet-group-name food-ordering-production-db-subnet-group 2>/dev/null
-if [ $? -eq 0 ]; then
-    echo "DB Subnet Group deleted."
+DB_SUBNET_GROUP=$(aws rds describe-db-subnet-groups --db-subnet-group-name food-ordering-production-db-subnet-group --query "DBSubnetGroups[0].DBSubnetGroupName" --output text 2>/dev/null)
+if [ -n "$DB_SUBNET_GROUP" ] && [ "$DB_SUBNET_GROUP" != "None" ]; then
+    echo "Deleting DB Subnet Group: food-ordering-production-db-subnet-group"
+    aws rds delete-db-subnet-group --db-subnet-group-name food-ordering-production-db-subnet-group 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "DB Subnet Group deleted."
+    else
+        echo "DB Subnet Group deletion failed (may still be in use)."
+    fi
 else
-    echo "DB Subnet Group not found or in use (wait for RDS deletion)."
+    echo "DB Subnet Group not found."
 fi
 
-# 7. Delete Security Groups (Best effort, might fail if still in use)
+# 8. Delete Security Groups (Best effort, might fail if still in use)
 echo "Checking Security Groups..."
 SGS=("food-ordering-production-ec2-sg" "food-ordering-production-alb-sg" "food-ordering-production-default-sg")
 for SG_NAME in "${SGS[@]}"; do
@@ -95,7 +119,7 @@ for SG_NAME in "${SGS[@]}"; do
     fi
 done
 
-# 8. Delete CloudWatch Log Group
+# 9. Delete CloudWatch Log Group
 echo "Checking Log Group..."
 aws logs delete-log-group --log-group-name /aws/ec2/food-ordering-production 2>/dev/null
 if [ $? -eq 0 ]; then
@@ -104,7 +128,7 @@ else
     echo "Log Group not found."
 fi
 
-# 9. Delete S3 Bucket
+# 10. Delete S3 Bucket
 echo "Checking S3 Bucket..."
 BUCKET_NAME="bucket-food-ordering-123456" 
 aws s3 rb "s3://$BUCKET_NAME" --force 2>/dev/null
