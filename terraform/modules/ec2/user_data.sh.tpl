@@ -1,68 +1,105 @@
 #!/bin/bash
+set -euxo pipefail
 
-# Update system
-yum update -y
+# Verbose logging for debugging: capture stdout/stderr to /var/log/user-data.log
+exec > >(tee /var/log/user-data.log) 2>&1
+echo "user-data started at $(date -u +%FT%TZ)"
+trap 'echo "user-data exited with $?" >> /var/log/user-data.log' EXIT
 
-# Install common tools
-yum install -y aws-cli unzip curl wget
+# PHP-only cloud-init / user-data script for Amazon Linux 2023
+# Template variables injected by Terraform: ${application_type}, ${db_endpoint}, ${db_name}, ${db_username}, ${db_password}, ${s3_bucket_name}
 
-if [ "${application_type}" = "dotnet" ]; then
-    # Install .NET 9
-    wget https://dot.net/v1/dotnet-install.sh
-    chmod +x dotnet-install.sh
-    ./dotnet-install.sh --channel 9.0
-    export PATH=$PATH:$HOME/.dotnet
+if command -v dnf >/dev/null 2>&1; then
+  PKG_MGR=dnf
+else
+  PKG_MGR=yum
+fi
 
-    # Create application directory
-    mkdir -p /opt/food-ordering
-    cd /opt/food-ordering
+# Refresh metadata (best-effort)
+$PKG_MGR -y makecache || true
 
-    # Download latest deployment from S3
-    LATEST_DEPLOYMENT=$(aws s3 ls s3://${s3_bucket_name}/dotnet-deployments/ --recursive | sort | tail -n 1 | awk '{print $4}')
-    if [ ! -z "$LATEST_DEPLOYMENT" ]; then
-        aws s3 cp s3://${s3_bucket_name}/$LATEST_DEPLOYMENT ./deployment-package.zip
-        unzip -o deployment-package.zip -d ./current
+# Helper: install a package only if binary doesn't exist
+install_if_missing() {
+    local binary="$1" pkg="$2"
+    if ! command -v "$binary" >/dev/null 2>&1; then
+        echo "Installing $pkg because $binary not found"
+        $PKG_MGR -y install "$pkg" || $PKG_MGR -y --allowerasing install "$pkg" || $PKG_MGR -y --skip-broken install "$pkg" || true
+    else
+        echo "$binary already present, skipping $pkg"
     fi
+}
 
-    # Create systemd service
-    cat > /etc/systemd/system/foodordering.service <<EOF
-[Unit]
-Description=Food Ordering API
-After=network.target
+# Ensure basic tooling exists without forcing package replacements
+install_if_missing wget wget
+install_if_missing unzip unzip
+install_if_missing tar tar
+install_if_missing gzip gzip
+if ! command -v curl >/dev/null 2>&1; then
+    echo "curl not found, attempting to install curl"
+    $PKG_MGR -y install curl || $PKG_MGR -y --allowerasing install curl || $PKG_MGR -y --skip-broken install curl || true
+else
+    echo "curl present"
+fi
 
-[Service]
-Type=notify
-ExecStart=/root/.dotnet/dotnet /opt/food-ordering/current/FoodOrdering.dll --urls "http://0.0.0.0:80"
-Restart=always
-RestartSec=10
-Environment=ASPNETCORE_ENVIRONMENT=Production
-Environment=ConnectionStrings__DefaultConnection="Server=${db_endpoint};Database=${db_name};User Id=${db_username};Password=${db_password};"
+# Ensure SSM agent is present and running
+if ! systemctl list-units --full -all | grep -q amazon-ssm-agent; then
+    echo "amazon-ssm-agent not detected; attempting to install"
+    $PKG_MGR -y install amazon-ssm-agent || true
+fi
+systemctl enable --now amazon-ssm-agent || true
 
-[Install]
-WantedBy=multi-user.target
-EOF
+# Artifact fallback key (shell-only variable)
+ARTIFACT_KEY=php-published.zip
+ARTIFACT_S3="s3://${s3_bucket_name}/$${ARTIFACT_KEY}"
+ARTIFACT_HTTP="https://s3.amazonaws.com/${s3_bucket_name}/$${ARTIFACT_KEY}"
 
-    systemctl daemon-reload
-    systemctl enable foodordering
-    systemctl start foodordering
-
-elif [ "${application_type}" = "php" ]; then
-    # Install PHP and Apache
-    yum install -y php php-mysql php-json httpd
-
-    # Create application directory
-    mkdir -p /var/www/html/php-food-ordering
-    cd /var/www/html/php-food-ordering
-
-    # Download latest deployment from S3
-    LATEST_DEPLOYMENT=$(aws s3 ls s3://${s3_bucket_name}/php-deployments/ --recursive | sort | tail -n 1 | awk '{print $4}')
-    if [ ! -z "$LATEST_DEPLOYMENT" ]; then
-        aws s3 cp s3://${s3_bucket_name}/$LATEST_DEPLOYMENT ./deployment-package.zip
-        unzip -o deployment-package.zip
+TMP_ZIP=/tmp/foodordering.zip
+fetch_artifact() {
+    # Try aws cli first (instance role), fall back to HTTP
+    if command -v aws >/dev/null 2>&1; then
+        set +e
+        aws s3 cp "$ARTIFACT_S3" "$TMP_ZIP"
+        RES=$?
+        set -e
+        if [ $RES -eq 0 ] && [ -s "$TMP_ZIP" ]; then
+            echo "Downloaded artifact from S3"
+            return 0
+        fi
+        echo "aws s3 cp failed or artifact empty (exit $RES), falling back to HTTP"
     fi
+    curl -fsSL --retry 5 "$ARTIFACT_HTTP" -o "$TMP_ZIP" || return 1
+}
 
-    # Configure PHP database connection
-    cat > /var/www/html/php-food-ordering/api/db_config.php <<'PHPEOF'
+
+# PHP deployment
+DOCROOT=/var/www/html
+mkdir -p "$DOCROOT"
+cd "$DOCROOT"
+
+# Try to pick up latest package from s3 prefix php-deployments, else fallback to generic php artifact
+if command -v aws >/dev/null 2>&1; then
+    LATEST_DEPLOYMENT=$(aws s3 ls s3://${s3_bucket_name}/php-deployments/ --recursive | sort | tail -n 1 | awk '{print $4}' || true)
+    if [ -n "$LATEST_DEPLOYMENT" ]; then
+        aws s3 cp "s3://${s3_bucket_name}/$${LATEST_DEPLOYMENT}" ./deployment-package.zip || true
+        if [ -f ./deployment-package.zip ]; then
+            unzip -o ./deployment-package.zip -d "$DOCROOT"
+        fi
+    fi
+fi
+
+# Fallback: try generic artifact key
+if [ ! -f "$DOCROOT/index.php" ]; then
+    if fetch_artifact; then
+        unzip -o "$TMP_ZIP" -d "$DOCROOT"
+    fi
+fi
+
+# Install PHP + Apache if missing (adjust package names if your AMI differs)
+install_if_missing php php
+install_if_missing httpd httpd || install_if_missing apache2 apache2 || true
+
+# Configure DB settings
+cat > $${DOCROOT}/api/db_config.php <<'PHPEOF'
 <?php
 $_ENV['DB_HOST'] = '${db_endpoint}';
 $_ENV['DB_NAME'] = '${db_name}';
@@ -71,78 +108,11 @@ $_ENV['DB_PASS'] = '${db_password}';
 ?>
 PHPEOF
 
-    # Set permissions
-    chown -R apache:apache /var/www/html/php-food-ordering
-    chmod -R 755 /var/www/html/php-food-ordering
+chown -R apache:apache "$DOCROOT" || chown -R www-data:www-data "$DOCROOT" || true
+chmod -R 755 "$DOCROOT"
 
-    # Configure Apache
-    cat > /etc/httpd/conf.d/foodordering.conf <<EOF
-<VirtualHost *:80>
-    ServerName localhost
-    DocumentRoot /var/www/html/php-food-ordering
-    
-    <Directory /var/www/html/php-food-ordering>
-        Options Indexes FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
-</VirtualHost>
-EOF
+# Start web server
+systemctl enable --now httpd || systemctl enable --now apache2 || true
 
-    systemctl enable httpd
-    systemctl start httpd
-fi
-
-# Install CloudWatch agent
-wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
-rpm -U ./amazon-cloudwatch-agent.rpm
-
-# Configure CloudWatch agent
-cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
-{
-    "logs": {
-        "logs_collected": {
-            "files": {
-                "collect_list": [
-                    {
-                        "file_path": "/var/log/messages",
-                        "log_group_name": "/aws/ec2/${application_type}-food-ordering",
-                        "log_stream_name": "{instance_id}"
-                    }
-                ]
-            }
-        }
-    },
-    "metrics": {
-        "namespace": "FoodOrdering/${application_type}",
-        "metrics_collected": {
-            "cpu": {
-                "measurement": [
-                    "cpu_usage_idle",
-                    "cpu_usage_iowait",
-                    "cpu_usage_user",
-                    "cpu_usage_system"
-                ],
-                "totalcpu": false
-            },
-            "disk": {
-                "measurement": [
-                    "used_percent"
-                ],
-                "resources": [
-                    "*"
-                ]
-            },
-            "mem": {
-                "measurement": [
-                    "mem_used_percent"
-                ]
-            }
-        }
-    }
-}
-EOF
-
-systemctl enable amazon-cloudwatch-agent
-systemctl start amazon-cloudwatch-agent
+echo "user-data script finished"
 

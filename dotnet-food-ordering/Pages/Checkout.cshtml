@@ -5,44 +5,36 @@
 }
 
 <div class="checkout-container">
-    <h1 class="page-title">💳 Checkout</h1>
+    <h1 class="page-title">Checkout</h1>
 
     <div class="checkout-content">
         <div class="order-summary">
-            <h2>Order Summary</h2>
+            <h2>Your Order</h2>
             <div id="order-items">
                 <!-- Items will be populated by JavaScript -->
             </div>
             <div class="order-total">
-                <p>Total: <span id="checkout-total">$0.00</span></p>
+                <span>Total:</span>
+                <span id="checkout-total">$0.00</span>
             </div>
         </div>
 
         <form id="checkout-form" class="checkout-form">
-            <h2>Delivery Information</h2>
+            <h2>Delivery Details</h2>
             
             <div class="form-group">
-                <label for="customerName">Name *</label>
+                <label for="customerName">Full Name *</label>
                 <input type="text" id="customerName" name="CustomerName" required>
             </div>
 
             <div class="form-group">
-                <label for="customerPhone">Phone *</label>
+                <label for="customerPhone">Phone Number *</label>
                 <input type="tel" id="customerPhone" name="CustomerPhone" required>
             </div>
 
             <div class="form-group">
                 <label for="deliveryAddress">Delivery Address *</label>
                 <textarea id="deliveryAddress" name="DeliveryAddress" rows="3" required></textarea>
-            </div>
-
-            <div class="form-group">
-                <label for="paymentMethod">Payment Method *</label>
-                <select id="paymentMethod" name="PaymentMethod" required>
-                    <option value="">Select payment method</option>
-                    <option value="cash">Cash on Delivery</option>
-                    <option value="card">Credit/Debit Card</option>
-                </select>
             </div>
 
             <button type="submit" class="btn-primary btn-large" id="place-order-btn">Place Order</button>
@@ -68,38 +60,23 @@
             return cartJson ? JSON.parse(cartJson) : [];
         }
 
-        async function displayCartItems(cart) {
-            // Fetch menu items to get names and prices
-            const menuItems = await fetchMenuItems();
+        function displayCartItems(cart) {
             const itemsContainer = document.getElementById('order-items');
             let total = 0;
 
             itemsContainer.innerHTML = cart.map(item => {
-                const menuItem = menuItems.find(m => m.id === item.menuItemId);
-                if (!menuItem) return '';
-                
-                const itemTotal = menuItem.price * item.quantity;
+                const itemTotal = item.price * item.quantity;
                 total += itemTotal;
                 
                 return `
                     <div class="order-item-row">
-                        <span>${menuItem.name} x ${item.quantity}</span>
+                        <span>${item.name} x ${item.quantity}</span>
                         <span>$${itemTotal.toFixed(2)}</span>
                     </div>
                 `;
             }).join('');
 
             document.getElementById('checkout-total').textContent = `$${total.toFixed(2)}`;
-        }
-
-        async function fetchMenuItems() {
-            try {
-                const response = await fetch('/api/menu');
-                return await response.json();
-            } catch (error) {
-                console.error('Error fetching menu:', error);
-                return [];
-            }
         }
 
         // Handle form submission
@@ -157,4 +134,3 @@
         });
     </script>
 }
-

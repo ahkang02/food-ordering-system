@@ -31,7 +31,7 @@ public class CheckoutModel : PageModel
     {
     }
 
-    public async Task<IActionResult> OnPostAsync()
+    public IActionResult OnPost()
     {
         // Get cart items from form (passed via hidden field or we'll use API)
         // For simplicity, we'll create order via API call from JavaScript

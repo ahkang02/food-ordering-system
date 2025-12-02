@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using FoodOrdering.Models;
-using FoodOrdering.Services;
+using FoodOrdering.Data;
 
 namespace FoodOrdering.Controllers;
 
@@ -8,38 +9,47 @@ namespace FoodOrdering.Controllers;
 [Route("api/[controller]")]
 public class MenuController : ControllerBase
 {
-    private readonly DataService _dataService;
+    private readonly ApplicationDbContext _context;
 
-    public MenuController(DataService dataService)
+    public MenuController(ApplicationDbContext context)
     {
-        _dataService = dataService;
+        _context = context;
     }
 
     [HttpGet]
-    public ActionResult<List<MenuItem>> GetAllMenuItems()
+    public async Task<ActionResult<List<MenuItem>>> GetAllMenuItems()
     {
-        return Ok(_dataService.GetAllMenuItems());
+        var items = await _context.MenuItems.OrderBy(m => m.Id).ToListAsync();
+        return Ok(items);
     }
 
     [HttpGet("{id}")]
-    public ActionResult<MenuItem> GetMenuItem(int id)
+    public async Task<ActionResult<MenuItem>> GetMenuItem(int id)
     {
-        var item = _dataService.GetMenuItem(id);
+        var item = await _context.MenuItems.FindAsync(id);
         if (item == null)
             return NotFound();
         return Ok(item);
     }
 
     [HttpGet("category/{category}")]
-    public ActionResult<List<MenuItem>> GetMenuItemsByCategory(string category)
+    public async Task<ActionResult<List<MenuItem>>> GetMenuItemsByCategory(string category)
     {
-        return Ok(_dataService.GetMenuItemsByCategory(category));
+        var items = await _context.MenuItems
+            .Where(m => m.Category == category)
+            .ToListAsync();
+        return Ok(items);
     }
 
     [HttpGet("categories")]
-    public ActionResult<List<string>> GetCategories()
+    public async Task<ActionResult<List<string>>> GetCategories()
     {
-        return Ok(_dataService.GetCategories());
+        var categories = await _context.MenuItems
+            .Select(m => m.Category)
+            .Distinct()
+            .OrderBy(c => c)
+            .ToListAsync();
+        return Ok(categories);
     }
 }
 

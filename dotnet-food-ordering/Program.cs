@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using FoodOrdering.Data;
 using FoodOrdering.Models;
@@ -7,22 +8,33 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container
 builder.Services.AddRazorPages();
 
-// Database configuration
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
-    ?? "Server=localhost;Database=foodordering;User Id=root;Password=;";
+// Configure JSON serialization to use camelCase (for JavaScript compatibility)
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.Preserve; // <-- Add this line
+    });
 
-// Support both MySQL and PostgreSQL
-if (connectionString.Contains("Server=") && !connectionString.Contains("Port="))
+// Database configuration
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+var environment = builder.Environment;
+
+// Use SQLite for local development, MySQL for production
+if (environment.IsDevelopment())
 {
-    // MySQL connection
+    // SQLite for local development (no server needed)
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
-        options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+        options.UseSqlite(connectionString));
 }
 else
 {
-    // PostgreSQL connection
+    // MySQL for production
+    var productionConnection = builder.Configuration.GetConnectionString("ProductionConnection") 
+        ?? connectionString;
+    
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
-        options.UseNpgsql(connectionString));
+        options.UseMySql(productionConnection, ServerVersion.AutoDetect(productionConnection)));
 }
 
 var app = builder.Build();
@@ -40,18 +52,31 @@ app.UseRouting();
 app.UseAuthorization();
 app.MapRazorPages();
 
-// Ensure database is created
+// Run database migrations (optional for local development)
 using (var scope = app.Services.CreateScope())
 {
-    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    dbContext.Database.EnsureCreated();
-    
-    // Seed initial data if database is empty
-    if (!dbContext.MenuItems.Any())
+    try
     {
-        SeedData(dbContext);
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        
+        // Apply any pending migrations
+        dbContext.Database.Migrate();
+        
+        // Seed initial data if database is empty
+        if (!dbContext.MenuItems.Any())
+        {
+            SeedData(dbContext);
+        }
+    }
+    catch (Exception ex)
+    {
+        // Log but don't fail if database is not available (for local development)
+        Console.WriteLine($"Warning: Could not initialize database: {ex.Message}");
+        Console.WriteLine("Application will run without database. Start MySQL/XAMPP to enable database features.");
     }
 }
+
+app.MapControllers();
 
 app.Run();
 

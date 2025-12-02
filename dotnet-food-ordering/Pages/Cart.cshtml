@@ -40,7 +40,9 @@
             let total = 0;
 
             const itemsHtml = cart.map(item => {
-                const menuItem = menuItems.find(m => m.id === item.menuItemId);
+                // Defensive: ensure menuItems is always an array
+                const itemsArr = Array.isArray(menuItems) ? menuItems : (menuItems && Array.isArray(menuItems.$values) ? menuItems.$values : []);
+                const menuItem = itemsArr.find(m => m.id === item.menuItemId);
                 if (!menuItem) return '';
 
                 const itemTotal = menuItem.price * item.quantity;
@@ -78,7 +80,11 @@
         async function fetchMenuItems() {
             try {
                 const response = await fetch('/api/menu');
-                return await response.json();
+                const data = await response.json();
+                // Handle $values if present (ReferenceHandler.Preserve)
+                if (Array.isArray(data)) return data;
+                if (data && Array.isArray(data.$values)) return data.$values;
+                return [];
             } catch (error) {
                 console.error('Error fetching menu:', error);
                 return [];

@@ -1,72 +1,109 @@
-# Database Migrations Guide
+# .NET Entity Framework Migrations Guide
 
-## Using Entity Framework Migrations
+## Setup EF Core Tools
 
-### 1. Install EF Tools (if not already installed)
+First, install the EF Core tools globally:
 
 ```bash
-dotnet tool install --global dotnet-ef
+dotnet tool install --global dotnet-ef --version 9.0.0
 ```
 
-### 2. Create Initial Migration
+If you get an error, try updating instead:
+
+```bash
+dotnet tool update --global dotnet-ef
+```
+
+## Create Initial Migration
+
+Navigate to the .NET project directory:
+
+```bash
+cd dotnet-food-ordering
+```
+
+Create the initial migration:
 
 ```bash
 dotnet ef migrations add InitialCreate
 ```
 
-This will create a `Migrations` folder with migration files.
+✅ **Note**: The project includes a `ApplicationDbContextFactory` that allows migrations to be created without a running database. This is a design-time factory that EF Core uses when creating migrations.
 
-### 3. Apply Migration to Database
+This will create a `Migrations` folder with the migration files.
+
+## Apply Migrations
+
+### Option 1: Automatic (Recommended for Development)
+The app will automatically apply migrations on startup (already configured in `Program.cs`).
+
+Just start the app:
+```bash
+dotnet run
+```
+
+### Option 2: Manual
+Apply migrations manually:
 
 ```bash
 dotnet ef database update
 ```
 
-This will create the database and all tables if they don't exist.
+## Common Commands
 
-### 4. For RDS Deployment
-
-Update `appsettings.json` or use environment variables:
-
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=your-rds-endpoint.region.rds.amazonaws.com;Database=foodordering;User Id=admin;Password=your-password;"
-  }
-}
+### Create a new migration
+```bash
+dotnet ef migrations add <MigrationName>
 ```
 
-Then run:
+### Apply all pending migrations
 ```bash
 dotnet ef database update
 ```
 
-## Alternative: Manual SQL Script
-
-If you prefer to run SQL manually:
-
-1. **For MySQL:** Run `database-schema.sql`
-2. **For PostgreSQL:** Run `database-schema-postgresql.sql`
-
-Then update `Program.cs` to remove `EnsureCreated()` and use migrations only.
-
-## Connection String Formats
-
-**MySQL:**
-```
-Server=host;Database=dbname;User Id=user;Password=pass;
-```
-
-**PostgreSQL:**
-```
-Host=host;Database=dbname;Username=user;Password=pass;
-```
-
-## Environment Variables
-
-You can also use environment variables:
-
+### Rollback to a specific migration
 ```bash
-export ConnectionStrings__DefaultConnection="Server=host;Database=dbname;User Id=user;Password=pass;"
+dotnet ef database update <MigrationName>
 ```
 
+### Remove the last migration (if not applied)
+```bash
+dotnet ef migrations remove
+```
+
+### List all migrations
+```bash
+dotnet ef migrations list
+```
+
+## Database Connection
+
+Make sure MySQL is running (via XAMPP) and the database exists:
+
+1. Start XAMPP MySQL
+2. Open phpMyAdmin: `http://localhost/phpmyadmin`
+3. Create database: `foodordering`
+
+The connection string in `Program.cs` will use:
+- Host: `localhost`
+- Database: `foodordering`
+- User: `root`
+- Password: (empty)
+
+## Troubleshooting
+
+### "dotnet-ef not found"
+```bash
+export PATH="$PATH:$HOME/.dotnet/tools"
+dotnet ef --version
+```
+
+### "Unable to connect to MySQL"
+- Ensure XAMPP MySQL is running
+- Verify database `foodordering` exists
+- Check connection string in `Program.cs`
+
+### Migration already exists
+If you get "migration already exists", either:
+- Remove it: `dotnet ef migrations remove`
+- Or use a different name: `dotnet ef migrations add InitialCreate2`

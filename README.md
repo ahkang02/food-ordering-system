@@ -78,6 +78,7 @@ tofu apply
 ## Documentation
 
 - [CI/CD Setup Guide](CI_CD_SETUP.md) - Complete CI/CD setup instructions
+- [Database Migrations](DATABASE_MIGRATIONS.md) - Automated database setup in CI/CD
 - [Infrastructure Summary](INFRASTRUCTURE_SUMMARY.md) - AWS infrastructure overview
 - [Deployment Explained](DEPLOYMENT_EXPLAINED.md) - Deployment approach details
 - [OpenTofu Setup](TOFU_SETUP.md) - OpenTofu installation and usage

@@ -3,17 +3,27 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] - Food Ordering</title>
+    <title>@ViewData["Title"] - GourmetNow</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
     <link rel="stylesheet" href="~/css/site.css" />
 </head>
 <body>
     <header>
         <nav class="navbar">
             <div class="container">
-                <a href="/" class="logo">🍕 Food Ordering</a>
+                <a href="/" class="logo">
+                    <i data-lucide="utensils-crossed"></i>
+                    <span>GourmetNow</span>
+                </a>
                 <div class="nav-links">
                     <a href="/">Menu</a>
-                    <a href="/Cart">Cart <span id="cart-badge" class="cart-badge"></span></a>
+                    <a href="/Cart" style="position: relative;">
+                        <i data-lucide="shopping-bag"></i>
+                        <span id="cart-badge" class="cart-badge" style="display: none;"></span>
+                    </a>
                 </div>
             </div>
         </nav>
@@ -25,12 +35,34 @@
 
     <footer>
         <div class="container">
-            <p>&copy; 2024 Food Ordering System</p>
+            <p>&copy; @DateTime.Now.Year GourmetNow. All rights reserved.</p>
         </div>
     </footer>
 
     <script src="~/js/site.js"></script>
+    <script>
+        lucide.createIcons();
+        
+        // Update cart badge
+        function updateCartBadge() {
+            const cart = JSON.parse(sessionStorage.getItem('cart') || '[]');
+            const badge = document.getElementById('cart-badge');
+            const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+            
+            if (count > 0) {
+                badge.textContent = count;
+                badge.style.display = 'flex';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+        
+        // Update on page load
+        updateCartBadge();
+        
+        // Update when storage changes
+        window.addEventListener('storage', updateCartBadge);
+    </script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
-

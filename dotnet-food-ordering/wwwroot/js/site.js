@@ -1,60 +1,87 @@
-// Global cart management
-let cart = [];
-
-// Load cart from sessionStorage
-function loadCart() {
+// Cart management
+function getCart() {
     const cartJson = sessionStorage.getItem('cart');
-    cart = cartJson ? JSON.parse(cartJson) : [];
-    updateCartBadge();
+    return cartJson ? JSON.parse(cartJson) : [];
 }
 
-// Save cart to sessionStorage
-function saveCart() {
+function saveCart(cart) {
     sessionStorage.setItem('cart', JSON.stringify(cart));
     updateCartBadge();
 }
 
-// Add item to cart
-function addToCart(itemId, itemName, itemPrice) {
-    const existingItem = cart.find(item => item.menuItemId === itemId);
-    
+function addToCart(menuItemId, name, price, imageUrl) {
+    const cart = getCart();
+    const existingItem = cart.find(item => item.menuItemId === menuItemId);
+
     if (existingItem) {
-        existingItem.quantity += 1;
+        existingItem.quantity++;
     } else {
         cart.push({
-            menuItemId: itemId,
-            name: itemName,
-            price: itemPrice,
+            menuItemId: menuItemId,
+            name: name,
+            price: price,
+            imageUrl: imageUrl,
             quantity: 1
         });
     }
-    
-    saveCart();
-    showNotification('Item added to cart!');
+
+    saveCart(cart);
+
+    // Show feedback
+    showToast('Added to cart!');
 }
 
-// Update cart badge
 function updateCartBadge() {
+    const cart = getCart();
     const badge = document.getElementById('cart-badge');
-    if (badge) {
-        const count = cart.reduce((sum, item) => sum + item.quantity, 0);
-        if (count > 0) {
-            badge.textContent = count;
-            badge.style.display = 'inline-block';
-        } else {
-            badge.style.display = 'none';
-        }
+    if (!badge) return;
+
+    const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+    if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'flex';
+    } else {
+        badge.style.display = 'none';
     }
 }
 
-// Show notification
-function showNotification(message) {
-    // Simple alert for now, can be enhanced with toast
-    console.log(message);
+function showToast(message) {
+    // Simple toast notification
+    const toast = document.createElement('div');
+    toast.textContent = message;
+    toast.style.cssText = `
+        position: fixed;
+        bottom: 2rem;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #2ed573;
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border-radius: 0.5rem;
+        font-weight: 500;
+        z-index: 1000;
+        animation: slideUp 0.3s ease-out;
+    `;
+
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.animation = 'slideDown 0.3s ease-out';
+        setTimeout(() => toast.remove(), 300);
+    }, 2000);
 }
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', function() {
-    loadCart();
-});
-
+// Add CSS for toast animations
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideUp {
+        from { transform: translate(-50%, 100%); opacity: 0; }
+        to { transform: translate(-50%, 0); opacity: 1; }
+    }
+    @keyframes slideDown {
+        from { transform: translate(-50%, 0); opacity: 1; }
+        to { transform: translate(-50%, 100%); opacity: 0; }
+    }
+`;
+document.head.appendChild(style);

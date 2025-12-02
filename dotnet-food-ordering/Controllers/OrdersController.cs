@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using FoodOrdering.Models;
-using FoodOrdering.Services;
+using FoodOrdering.Data;
 
 namespace FoodOrdering.Controllers;
 
@@ -8,50 +9,91 @@ namespace FoodOrdering.Controllers;
 [Route("api/[controller]")]
 public class OrdersController : ControllerBase
 {
-    private readonly DataService _dataService;
+    private readonly ApplicationDbContext _context;
 
-    public OrdersController(DataService dataService)
+    public OrdersController(ApplicationDbContext context)
     {
-        _dataService = dataService;
+        _context = context;
     }
 
     [HttpPost]
-    public ActionResult<Order> CreateOrder([FromBody] CreateOrderRequest request)
+    public async Task<ActionResult<Order>> CreateOrder([FromBody] CreateOrderRequest request)
     {
         if (request.CartItems == null || request.CartItems.Count == 0)
-            return BadRequest("Cart cannot be empty");
+            return BadRequest(new { error = "Cart cannot be empty" });
 
-        var order = _dataService.CreateOrder(
-            request.CartItems,
-            request.CustomerName,
-            request.CustomerPhone,
-            request.DeliveryAddress
-        );
+        var order = new Order
+        {
+            CustomerName = request.CustomerName ?? "",
+            CustomerPhone = request.CustomerPhone ?? "",
+            DeliveryAddress = request.DeliveryAddress ?? "",
+            Status = "pending",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        // Calculate total and create order items
+        decimal total = 0;
+        var orderItems = new List<OrderItem>();
+
+        foreach (var cartItem in request.CartItems)
+        {
+            var menuItem = await _context.MenuItems.FindAsync(cartItem.MenuItemId);
+            if (menuItem == null)
+                continue;
+
+            var orderItem = new OrderItem
+            {
+                MenuItemId = cartItem.MenuItemId,
+                MenuItemName = menuItem.Name,
+                Quantity = cartItem.Quantity,
+                Price = menuItem.Price
+            };
+
+            orderItems.Add(orderItem);
+            total += menuItem.Price * cartItem.Quantity;
+        }
+
+        order.Total = total;
+        order.OrderItems = orderItems;
+
+        _context.Orders.Add(order);
+        await _context.SaveChangesAsync();
 
         return CreatedAtAction(nameof(GetOrder), new { id = order.Id }, order);
     }
 
     [HttpGet]
-    public ActionResult<List<Order>> GetAllOrders()
+    public async Task<ActionResult<List<Order>>> GetAllOrders()
     {
-        return Ok(_dataService.GetAllOrders());
+        var orders = await _context.Orders
+            .Include(o => o.OrderItems)
+            .OrderByDescending(o => o.CreatedAt)
+            .ToListAsync();
+        return Ok(orders);
     }
 
     [HttpGet("{id}")]
-    public ActionResult<Order> GetOrder(int id)
+    public async Task<ActionResult<Order>> GetOrder(int id)
     {
-        var order = _dataService.GetOrder(id);
+        var order = await _context.Orders
+            .Include(o => o.OrderItems)
+            .FirstOrDefaultAsync(o => o.Id == id);
+            
         if (order == null)
             return NotFound();
         return Ok(order);
     }
 
     [HttpPatch("{id}/status")]
-    public ActionResult<Order> UpdateOrderStatus(int id, [FromBody] UpdateStatusRequest request)
+    public async Task<ActionResult<Order>> UpdateOrderStatus(int id, [FromBody] UpdateStatusRequest request)
     {
-        var order = _dataService.UpdateOrderStatus(id, request.Status);
+        var order = await _context.Orders.FindAsync(id);
         if (order == null)
             return NotFound();
+
+        order.Status = request.Status;
+        await _context.SaveChangesAsync();
+
         return Ok(order);
     }
 }

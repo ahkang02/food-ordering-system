@@ -22,7 +22,7 @@ class DataService {
                 'description' => 'Classic tomato, mozzarella, and basil',
                 'price' => 12.99,
                 'category' => 'Pizza',
-                'imageUrl' => '/images/margherita.jpg'
+                'imageUrl' => 'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=400&h=300&fit=crop'
             ],
             [
                 'id' => 2,
@@ -30,7 +30,7 @@ class DataService {
                 'description' => 'Pepperoni and mozzarella cheese',
                 'price' => 14.99,
                 'category' => 'Pizza',
-                'imageUrl' => '/images/pepperoni.jpg'
+                'imageUrl' => 'https://images.unsplash.com/photo-1628840042765-356cda07504e?w=400&h=300&fit=crop'
             ],
             [
                 'id' => 3,
@@ -38,7 +38,7 @@ class DataService {
                 'description' => 'Fresh romaine lettuce with caesar dressing',
                 'price' => 8.99,
                 'category' => 'Salads',
-                'imageUrl' => '/images/caesar.jpg'
+                'imageUrl' => 'https://images.unsplash.com/photo-1546793665-c74611f273ed?w=400&h=300&fit=crop'
             ],
             [
                 'id' => 4,
@@ -46,7 +46,7 @@ class DataService {
                 'description' => 'Grilled chicken breast with lettuce and mayo',
                 'price' => 10.99,
                 'category' => 'Burgers',
-                'imageUrl' => '/images/chicken-burger.jpg'
+                'imageUrl' => 'https://images.unsplash.com/photo-1606755962773-d324e0a13086?w=400&h=300&fit=crop'
             ],
             [
                 'id' => 5,
@@ -54,7 +54,7 @@ class DataService {
                 'description' => 'Juicy beef patty with cheese and vegetables',
                 'price' => 11.99,
                 'category' => 'Burgers',
-                'imageUrl' => '/images/beef-burger.jpg'
+                'imageUrl' => 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400&h=300&fit=crop'
             ],
             [
                 'id' => 6,
@@ -62,7 +62,7 @@ class DataService {
                 'description' => 'Crispy golden fries',
                 'price' => 4.99,
                 'category' => 'Sides',
-                'imageUrl' => '/images/fries.jpg'
+                'imageUrl' => 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=400&h=300&fit=crop'
             ],
             [
                 'id' => 7,
@@ -70,7 +70,7 @@ class DataService {
                 'description' => 'Refreshing cola drink',
                 'price' => 2.99,
                 'category' => 'Drinks',
-                'imageUrl' => '/images/coke.jpg'
+                'imageUrl' => 'https://images.unsplash.com/photo-1554866585-cd94860890b7?w=400&h=300&fit=crop'
             ],
             [
                 'id' => 8,
@@ -78,7 +78,7 @@ class DataService {
                 'description' => 'Rich chocolate cake slice',
                 'price' => 6.99,
                 'category' => 'Desserts',
-                'imageUrl' => '/images/chocolate-cake.jpg'
+                'imageUrl' => 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=400&h=300&fit=crop'
             ]
         ];
     }
