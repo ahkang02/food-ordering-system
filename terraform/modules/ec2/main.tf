@@ -64,11 +64,11 @@ resource "aws_launch_template" "main" {
 
   vpc_security_group_ids = [aws_security_group.ec2.id]
 
-  # Increase root volume size to 20GB
+  # Increase root volume size to 30GB (minimum required by AMI snapshot)
   block_device_mappings {
     device_name = "/dev/xvda"
     ebs {
-      volume_size = 20
+      volume_size = 30
       volume_type = "gp3"
     }
   }
