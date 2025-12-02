@@ -50,3 +50,21 @@ variable "vpc_security_group_ids" {
   type        = list(string)
 }
 
+variable "ec2_security_group_id" {
+  description = "EC2 security group ID for RDS access"
+  type        = string
+  default     = ""
+}
+
+variable "publicly_accessible" {
+  description = "Whether the RDS instance should be publicly accessible"
+  type        = bool
+  default     = false
+}
+
+variable "allowed_cidr_blocks" {
+  description = "CIDR blocks allowed to access RDS (when publicly accessible)"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+

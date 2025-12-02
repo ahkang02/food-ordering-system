@@ -14,12 +14,37 @@ resource "aws_security_group" "rds" {
   description = "Security group for RDS"
   vpc_id      = var.vpc_id
 
+  # Allow access from VPC default security group
   ingress {
-    description     = "MySQL/Aurora"
+    description     = "MySQL/Aurora from VPC default SG"
     from_port       = 3306
     to_port         = 3306
     protocol        = "tcp"
     security_groups = var.vpc_security_group_ids
+  }
+
+  # Allow access from EC2 security group
+  dynamic "ingress" {
+    for_each = var.ec2_security_group_id != "" ? [1] : []
+    content {
+      description     = "MySQL/Aurora from EC2"
+      from_port       = 3306
+      to_port         = 3306
+      protocol        = "tcp"
+      security_groups = [var.ec2_security_group_id]
+    }
+  }
+
+  # Allow public access if enabled
+  dynamic "ingress" {
+    for_each = var.publicly_accessible ? [1] : []
+    content {
+      description = "MySQL/Aurora from allowed CIDR blocks"
+      from_port   = 3306
+      to_port     = 3306
+      protocol    = "tcp"
+      cidr_blocks = var.allowed_cidr_blocks
+    }
   }
 
   egress {
@@ -50,6 +75,7 @@ resource "aws_db_instance" "main" {
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.rds.id]
+  publicly_accessible    = var.publicly_accessible
 
   backup_retention_period = 7
   backup_window           = "03:00-04:00"

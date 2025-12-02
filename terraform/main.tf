@@ -59,6 +59,8 @@ module "rds" {
   environment            = var.environment
   project_name           = var.project_name
   vpc_security_group_ids = [module.vpc.vpc_default_security_group_id]
+  ec2_security_group_id  = module.ec2.ec2_security_group_id
+  publicly_accessible    = false
 }
 
 # Application Load Balancer Module
