@@ -55,11 +55,6 @@ jobs:
     needs: [cleanup]
     if: always() && (needs.cleanup.result == 'success' || needs.cleanup.result == 'skipped')
     environment: development
-    env:
-      TF_VAR_application_type: ${{ inputs.application_type }}
-      TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
-      TF_VAR_db_name: foodordering
-      TF_VAR_db_username: admin
     outputs:
       db_endpoint: ${{ steps.outputs.outputs.db_endpoint }}
       alb_dns: ${{ steps.outputs.outputs.alb_dns }}
@@ -87,6 +82,11 @@ jobs:
       
       - name: Terraform Apply
         working-directory: ./terraform
+        env:
+          TF_VAR_application_type: ${{ inputs.application_type }}
+          TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+          TF_VAR_db_name: foodordering
+          TF_VAR_db_username: admin
         run: |
           tofu apply -auto-approve \
             -var="application_type=${{ inputs.application_type }}"
