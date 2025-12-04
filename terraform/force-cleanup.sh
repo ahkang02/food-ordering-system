@@ -245,6 +245,55 @@ VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=food-ordering-pro
 if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
     echo "Found VPC: $VPC_ID"
     
+    # 9. Delete Network Interfaces (ENIs) - Must be done before route tables/VPC
+echo "Checking Network Interfaces (ENIs)..."
+VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=food-ordering-production-vpc" --query "Vpcs[0].VpcId" --output text 2>/dev/null)
+
+if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+    ENI_IDS=$(aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=$VPC_ID" --query "NetworkInterfaces[?Status!='in-use'].NetworkInterfaceId" --output text 2>/dev/null)
+    
+    if [ -n "$ENI_IDS" ]; then
+        for ENI_ID in $ENI_IDS; do
+            echo "Deleting Network Interface: $ENI_ID"
+            
+            # Detach if attached
+            ATTACHMENT_ID=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI_ID" --query "NetworkInterfaces[0].Attachment.AttachmentId" --output text 2>/dev/null)
+            if [ -n "$ATTACHMENT_ID" ] && [ "$ATTACHMENT_ID" != "None" ]; then
+                echo "  Detaching ENI first..."
+                aws ec2 detach-network-interface --attachment-id "$ATTACHMENT_ID" --force 2>/dev/null || true
+                sleep 3
+            fi
+            
+            # Delete ENI
+            aws ec2 delete-network-interface --network-interface-id "$ENI_ID" 2>/dev/null && echo "  ✓ Deleted $ENI_ID" || echo "  ✗ Could not delete $ENI_ID"
+        done
+    else
+        echo "No detached ENIs found."
+    fi
+fi
+
+# 10. Delete Route Tables
+echo "Checking Route Tables..."
+RT_IDS=$(aws ec2 describe-route-tables --filters "Name=tag:Name,Values=food-ordering-production-*" --query "RouteTables[?Associations[0].Main==\`false\`].RouteTableId" --output text 2>/dev/null)
+if [ -n "$RT_IDS" ]; then
+    for RT_ID in $RT_IDS; do
+        echo "Deleting Route Table: $RT_ID"
+        
+        # Disassociate all subnets first
+        ASSOCIATIONS=$(aws ec2 describe-route-tables --route-table-ids "$RT_ID" --query "RouteTables[0].Associations[?!Main].RouteTableAssociationId" --output text 2>/dev/null)
+        for ASSOC_ID in $ASSOCIATIONS; do
+            [ -z "$ASSOC_ID" ] && continue
+            echo "  Disassociating subnet from route table..."
+            aws ec2 disassociate-route-table --association-id "$ASSOC_ID" 2>/dev/null || true
+        done
+        
+        # Delete the route table
+        aws ec2 delete-route-table --route-table-id "$RT_ID" 2>/dev/null && echo "  ✓ Deleted $RT_ID" || echo "  ✗ Could not delete $RT_ID (may have dependencies)"
+    done
+else
+    echo "Route Tables not found."
+fi
+    
     # First, detach and delete Internet Gateway
     echo "Checking Internet Gateway..."
     IGW_ID=$(aws ec2 describe-internet-gateways --filters "Name=attachment.vpc-id,Values=$VPC_ID" --query "InternetGateways[0].InternetGatewayId" --output text 2>/dev/null)
@@ -264,15 +313,6 @@ if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
         done
     fi
     
-    # Delete route tables (except main)
-    echo "Checking Route Tables..."
-    RT_IDS=$(aws ec2 describe-route-tables --filters "Name=vpc-id,Values=$VPC_ID" --query "RouteTables[?Associations[0].Main!=\`true\`].RouteTableId" --output text 2>/dev/null)
-    if [ -n "$RT_IDS" ]; then
-        for RT_ID in $RT_IDS; do
-            echo "Deleting Route Table: $RT_ID"
-            aws ec2 delete-route-table --route-table-id "$RT_ID" 2>/dev/null || echo "Could not delete route table $RT_ID"
-        done
-    fi
     
     # Finally delete VPC
     echo "Deleting VPC: $VPC_ID"
