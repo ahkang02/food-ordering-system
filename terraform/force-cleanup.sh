@@ -88,22 +88,37 @@ fi
 
 # 6. Release Elastic IPs (must be after NAT Gateway deletion)
 echo "Checking Elastic IPs..."
-EIP_ALLOC_IDS=$(aws ec2 describe-addresses --filters "Name=tag:Name,Values=food-ordering-production-eip-*" --query "Addresses[].AllocationId" --output text 2>/dev/null)
-if [ -n "$EIP_ALLOC_IDS" ]; then
-    for ALLOC_ID in $EIP_ALLOC_IDS; do
+
+# Find EIPs by tag pattern
+EIP_ALLOC_IDS=$(aws ec2 describe-addresses --filters "Name=tag:Name,Values=*food-ordering*nat-eip*" --query "Addresses[].AllocationId" --output text 2>/dev/null)
+
+# Also find any EIPs associated with our project (broader search)
+PROJECT_EIPS=$(aws ec2 describe-addresses --filters "Name=tag:project_name,Values=food-ordering" --query "Addresses[].AllocationId" --output text 2>/dev/null)
+
+# Combine both lists
+ALL_EIPS="$EIP_ALLOC_IDS $PROJECT_EIPS"
+
+if [ -n "$ALL_EIPS" ]; then
+    for ALLOC_ID in $ALL_EIPS; do
+        # Skip empty entries
+        [ -z "$ALLOC_ID" ] && continue
+        
         echo "Releasing Elastic IP: $ALLOC_ID"
-        aws ec2 release-address --allocation-id "$ALLOC_ID" 2>/dev/null || echo "Could not release EIP $ALLOC_ID (may still be associated)"
+        
+        # Check if EIP is still associated
+        ASSOCIATION=$(aws ec2 describe-addresses --allocation-ids "$ALLOC_ID" --query "Addresses[0].AssociationId" --output text 2>/dev/null)
+        
+        if [ -n "$ASSOCIATION" ] && [ "$ASSOCIATION" != "None" ]; then
+            echo "  EIP is still associated, disassociating first..."
+            aws ec2 disassociate-address --association-id "$ASSOCIATION" 2>/dev/null || true
+            sleep 2
+        fi
+        
+        # Now release the EIP
+        aws ec2 release-address --allocation-id "$ALLOC_ID" 2>/dev/null && echo "  ✓ Released $ALLOC_ID" || echo "  ✗ Could not release $ALLOC_ID"
     done
 else
-    echo "No tagged Elastic IPs found."
-fi
-
-# Also check for untagged EIPs associated with our project
-echo "Checking for untagged Elastic IPs..."
-UNTAGGED_EIPS=$(aws ec2 describe-addresses --query "Addresses[?AssociationId==null].AllocationId" --output text 2>/dev/null)
-if [ -n "$UNTAGGED_EIPS" ]; then
-    echo "Found unassociated EIPs (potential orphans): $UNTAGGED_EIPS"
-    echo "To release them manually, run: aws ec2 release-address --allocation-id <ALLOC_ID>"
+    echo "No Elastic IPs found."
 fi
 
 # 7. Delete RDS Instance
