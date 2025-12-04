@@ -152,8 +152,8 @@ jobs:
             "    \"export DB_ENDPOINT=$DB_ENDPOINT\"," \
             "    \"export DB_USERNAME=$DB_USERNAME\"," \
             "    \"export DB_PASSWORD=$DB_PASSWORD\"," \
-            "    \"chmod +x /opt/food-ordering/current/scripts/migrate-dotnet-db.sh\"," \
-            "    \"/opt/food-ordering/current/scripts/migrate-dotnet-db.sh\"" \
+            "    \"chmod +x /var/www/foodordering/scripts/migrate-dotnet-db.sh\"," \
+            "    \"/var/www/foodordering/scripts/migrate-dotnet-db.sh\"" \
             "  ]" "}" > "$PARAMS_FILE"
           
           COMMAND_ID=$(aws ssm send-command \
