@@ -3,14 +3,27 @@ set -e
 
 echo "=== .NET Database Migration Script ==="
 
-# Check required environment variables
+# Accept command-line arguments OR environment variables
+# Usage: ./migrate-dotnet-db.sh [DB_ENDPOINT] [DB_USERNAME] [DB_PASSWORD]
+if [ -n "$1" ]; then
+    DB_ENDPOINT="$1"
+fi
+if [ -n "$2" ]; then
+    DB_USERNAME="$2"
+fi
+if [ -n "$3" ]; then
+    DB_PASSWORD="$3"
+fi
+
+# Check required variables
 if [ -z "$DB_ENDPOINT" ] || [ -z "$DB_USERNAME" ] || [ -z "$DB_PASSWORD" ]; then
-    echo "Error: Required environment variables not set"
-    echo "Required: DB_ENDPOINT, DB_USERNAME, DB_PASSWORD"
+    echo "Error: Required database credentials not set"
+    echo "Usage: $0 <DB_ENDPOINT> <DB_USERNAME> <DB_PASSWORD>"
+    echo "   OR: Set environment variables DB_ENDPOINT, DB_USERNAME, DB_PASSWORD"
     exit 1
 fi
 
-APP_DIR="/opt/food-ordering/current"
+APP_DIR="/var/www/foodordering"
 DB_NAME="foodordering"
 
 echo "Database: $DB_NAME"

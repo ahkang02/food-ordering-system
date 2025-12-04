@@ -74,7 +74,7 @@ jobs:
 
     - name: Deploy to EC2 via SSM
       env:
-        DB_ENDPOINT: ${{ secrets.DB_ENDPOINT }}
+        DB_ENDPOINT: ${{ vars.DB_ENDPOINT }}
         DB_USERNAME: ${{ secrets.DB_USERNAME }}
         DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       run: |
@@ -138,10 +138,27 @@ jobs:
 
     - name: Run database migrations
       env:
-        DB_ENDPOINT: ${{ secrets.DB_ENDPOINT }}
+        DB_ENDPOINT: ${{ vars.DB_ENDPOINT }}
         DB_USERNAME: ${{ secrets.DB_USERNAME }}
         DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       run: |
+        # Debug: Check if secrets are set (without revealing values)
+        echo "Checking secrets..."
+        if [ -z "$DB_ENDPOINT" ]; then
+          echo "ERROR: DB_ENDPOINT secret is not set in GitHub!"
+          echo "Please add DB_ENDPOINT to your repository secrets (Settings > Secrets > Actions)"
+          exit 1
+        fi
+        if [ -z "$DB_USERNAME" ]; then
+          echo "ERROR: DB_USERNAME secret is not set in GitHub!"
+          exit 1
+        fi
+        if [ -z "$DB_PASSWORD" ]; then
+          echo "ERROR: DB_PASSWORD secret is not set in GitHub!"
+          exit 1
+        fi
+        echo "All secrets are set. DB_ENDPOINT starts with: ${DB_ENDPOINT:0:20}..."
+        
         # Get only healthy, in-service instances
         INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
           --auto-scaling-group-names ${{ vars.ASG_NAME }} \
