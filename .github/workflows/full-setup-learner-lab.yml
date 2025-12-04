@@ -27,6 +27,7 @@ jobs:
   cleanup:
     name: 🧹 Cleanup Old Resources
     runs-on: ubuntu-latest
+    environment: development
     if: ${{ inputs.cleanup_first }}
     steps:
       - uses: actions/checkout@v4
@@ -111,6 +112,7 @@ jobs:
   deploy-php:
     name: 🐘 Deploy PHP Application
     runs-on: ubuntu-latest
+    environment: development
     needs: [provision]
     if: inputs.application_type == 'php'
     env:
@@ -265,6 +267,7 @@ jobs:
   deploy-dotnet:
     name: 🔷 Deploy .NET Application
     runs-on: ubuntu-latest
+    environment: development
     needs: [provision]
     if: inputs.application_type == 'dotnet'
     env:
