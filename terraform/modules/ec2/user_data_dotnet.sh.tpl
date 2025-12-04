@@ -14,38 +14,82 @@ else
 fi
 
 $PKG_MGR -y makecache || true
-$PKG_MGR -y install wget unzip tar gzip curl amazon-ssm-agent aspnetcore-runtime-8.0 nginx || true
-systemctl enable --now amazon-ssm-agent
-systemctl enable --now nginx
 
-# 3. Download Artifact
-# Try to pick up latest package from s3 prefix dotnet-deployments, else fallback to generic artifact
+# Install packages individually to avoid conflicts
+$PKG_MGR -y install wget unzip tar gzip || true
+$PKG_MGR -y install amazon-ssm-agent || true
+$PKG_MGR -y install aspnetcore-runtime-8.0 --allowerasing || $PKG_MGR -y install aspnetcore-runtime-8.0 || true
+$PKG_MGR -y install nginx --allowerasing || $PKG_MGR -y install nginx || true
+
+systemctl enable --now amazon-ssm-agent || true
+systemctl enable --now nginx || true
+
+# =============================================================================
+# PREPARE APPLICATION DIRECTORY
+# =============================================================================
+echo "Preparing application directory..."
+
 APP_DIR="/var/www/foodordering"
 mkdir -p "$APP_DIR"
 chown -R ec2-user:ec2-user "$APP_DIR"
 
-TMP_ZIP="/tmp/foodordering.zip"
+# =============================================================================
+# CREATE PLACEHOLDER APPLICATION
+# =============================================================================
+echo "Creating placeholder application..."
 
-if command -v aws >/dev/null 2>&1; then
-    # List objects in dotnet-deployments/ prefix, sort, and pick the last one (latest)
-    LATEST_DEPLOYMENT=$(aws s3 ls s3://${s3_bucket_name}/dotnet-deployments/ --recursive | sort | tail -n 1 | awk '{print $4}' || true)
-    
-    if [ -n "$LATEST_DEPLOYMENT" ]; then
-        echo "Found latest deployment: $LATEST_DEPLOYMENT"
-        aws s3 cp "s3://${s3_bucket_name}/$${LATEST_DEPLOYMENT}" "$TMP_ZIP" || true
-    else
-        echo "No deployments found in dotnet-deployments/, falling back to dotnet-published.zip"
-        aws s3 cp "s3://${s3_bucket_name}/dotnet-published.zip" "$TMP_ZIP" || true
-    fi
-fi
+cat > "$APP_DIR/Program.cs" <<'DOTNET_EOF'
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
 
-if [ -f "$TMP_ZIP" ]; then
-    unzip -o "$TMP_ZIP" -d "$APP_DIR"
-    chown -R ec2-user:ec2-user "$APP_DIR"
-    chmod +x "$APP_DIR/FoodOrdering"
-fi
+app.MapGet("/", () => Results.Content(@"
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Food Ordering System</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+        .container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); max-width: 600px; margin: 0 auto; }
+        h1 { color: #333; }
+        p { color: #666; line-height: 1.6; }
+        .status { color: #4CAF50; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <h1>🍕 Food Ordering System (.NET)</h1>
+        <p class='status'>✓ Infrastructure Provisioned Successfully</p>
+        <p>The server is ready and waiting for application deployment.</p>
+        <p>To deploy the application, run the <strong>.NET Deploy</strong> workflow from GitHub Actions.</p>
+        <hr>
+        <p><small>Server Time: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + @"</small></p>
+    </div>
+</body>
+</html>
+", "text/html"));
 
-# 4. Create Systemd Service
+app.Run();
+DOTNET_EOF
+
+cat > "$APP_DIR/FoodOrdering.csproj" <<'CSPROJ_EOF'
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>
+CSPROJ_EOF
+
+# Build the placeholder app
+cd "$APP_DIR"
+dotnet build -c Release -o . 2>/dev/null || echo "Build skipped, will use systemd to manage"
+chown -R ec2-user:ec2-user "$APP_DIR"
+
+# =============================================================================
+# CREATE SYSTEMD SERVICE
+# =============================================================================
+echo "Creating systemd service..."
 cat > /etc/systemd/system/foodordering.service <<EOF
 [Unit]
 Description=Food Ordering .NET App

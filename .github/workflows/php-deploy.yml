@@ -58,6 +58,10 @@ jobs:
         echo "Deployed to S3: s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY"
 
     - name: Deploy to EC2 via SSM
+      env:
+        DB_ENDPOINT: ${{ secrets.DB_ENDPOINT }}
+        DB_USERNAME: ${{ secrets.DB_USERNAME }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       run: |
         INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
           --auto-scaling-group-names ${{ vars.ASG_NAME }} \
@@ -72,12 +76,16 @@ jobs:
           # Create a temporary parameters JSON file for SSM to avoid YAML/quoted inline mapping issues
           PARAMS_FILE=$(mktemp)
           printf "%s\n" "{" "  \"commands\": [" \
-            "    \"cd /var/www/html/php-food-ordering\"," \
+            "    \"cd /var/www/html\"," \
             "    \"sudo aws s3 cp s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY ./deployment-package.zip\"," \
             "    \"sudo unzip -o deployment-package.zip\"," \
-            "    \"sudo chown -R www-data:www-data /var/www/html/php-food-ordering\"," \
-            "    \"sudo chmod -R 755 /var/www/html/php-food-ordering\"," \
-            "    \"sudo systemctl reload apache2 || sudo systemctl reload nginx\"," \
+            "    \"sudo sed -i 's|__DB_ENDPOINT__|$DB_ENDPOINT|g' api/db_config.php\"," \
+            "    \"sudo sed -i 's|__DB_NAME__|foodordering|g' api/db_config.php\"," \
+            "    \"sudo sed -i 's|__DB_USERNAME__|$DB_USERNAME|g' api/db_config.php\"," \
+            "    \"sudo sed -i 's|__DB_PASSWORD__|$DB_PASSWORD|g' api/db_config.php\"," \
+            "    \"sudo chown -R apache:apache /var/www/html || sudo chown -R www-data:www-data /var/www/html\"," \
+            "    \"sudo chmod -R 755 /var/www/html\"," \
+            "    \"sudo systemctl reload httpd || sudo systemctl reload apache2\"," \
             "    \"echo 'Deployment completed successfully'\"" \
             "  ]" "}" > "$PARAMS_FILE"
 

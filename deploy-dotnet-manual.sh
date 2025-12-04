@@ -64,8 +64,24 @@ if ! command -v aws > /dev/null 2>&1; then
     rm -rf aws awscliv2.zip
 fi
 
-# Install MySQL client for database operations
-$PKG_MGR -y install mysql
+# Install MariaDB client for database operations
+echo "Installing MariaDB client..."
+$PKG_MGR -y install mariadb105-server
+
+# Secure MariaDB installation (non-interactive)
+echo "Securing MariaDB installation..."
+# Start MariaDB service temporarily for secure installation
+systemctl start mariadb || true
+# Run mysql_secure_installation non-interactively
+mysql -e "UPDATE mysql.user SET Password=PASSWORD('') WHERE User='root';" 2>/dev/null || true
+mysql -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || true
+mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || true
+mysql -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || true
+mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || true
+mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+# Stop local MariaDB as we're using RDS
+systemctl stop mariadb || true
+systemctl disable mariadb || true
 
 # =============================================================================
 # INSTALL .NET RUNTIME AND NGINX
@@ -118,10 +134,7 @@ fi
 # =============================================================================
 echo "Step 5: Extracting application files..."
 
-# Clear application directory
-rm -rf ${APP_DIR}/*
-
-# Extract application
+# Extract application (will overwrite existing files)
 unzip -o "/tmp/${PACKAGE_FILE}" -d ${APP_DIR}
 
 # Set ownership

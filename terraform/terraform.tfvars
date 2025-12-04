@@ -24,5 +24,4 @@ desired_capacity = 2
 s3_bucket_name = "bucket-food-ordering-123456"
 
 # Application Type
-application_type = "dotnet" # or "php"
-
+application_type = "php" # or "dotnet"

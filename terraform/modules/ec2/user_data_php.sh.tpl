@@ -48,59 +48,64 @@ if ! systemctl list-units --full -all | grep -q amazon-ssm-agent; then
 fi
 systemctl enable --now amazon-ssm-agent || true
 
-# Artifact fallback key (shell-only variable)
-ARTIFACT_KEY=php-published.zip
-ARTIFACT_S3="s3://${s3_bucket_name}/$${ARTIFACT_KEY}"
-ARTIFACT_HTTP="https://s3.amazonaws.com/${s3_bucket_name}/$${ARTIFACT_KEY}"
+# =============================================================================
+# INSTALL PHP AND APACHE
+# =============================================================================
+echo "Installing PHP and Apache..."
 
-TMP_ZIP=/tmp/foodordering.zip
-fetch_artifact() {
-    # Try aws cli first (instance role), fall back to HTTP
-    if command -v aws >/dev/null 2>&1; then
-        set +e
-        aws s3 cp "$ARTIFACT_S3" "$TMP_ZIP"
-        RES=$?
-        set -e
-        if [ $RES -eq 0 ] && [ -s "$TMP_ZIP" ]; then
-            echo "Downloaded artifact from S3"
-            return 0
-        fi
-        echo "aws s3 cp failed or artifact empty (exit $RES), falling back to HTTP"
-    fi
-    curl -fsSL --retry 5 "$ARTIFACT_HTTP" -o "$TMP_ZIP" || return 1
-}
-
-
-# PHP deployment
-DOCROOT=/var/www/html
-mkdir -p "$DOCROOT"
-cd "$DOCROOT"
-
-# Try to pick up latest package from s3 prefix php-deployments, else fallback to generic php artifact
-if command -v aws >/dev/null 2>&1; then
-    LATEST_DEPLOYMENT=$(aws s3 ls s3://${s3_bucket_name}/php-deployments/ --recursive | sort | tail -n 1 | awk '{print $4}' || true)
-    if [ -n "$LATEST_DEPLOYMENT" ]; then
-        aws s3 cp "s3://${s3_bucket_name}/$${LATEST_DEPLOYMENT}" ./deployment-package.zip || true
-        if [ -f ./deployment-package.zip ]; then
-            unzip -o ./deployment-package.zip -d "$DOCROOT"
-        fi
-    fi
-fi
-
-# Fallback: try generic artifact key
-if [ ! -f "$DOCROOT/index.php" ]; then
-    if fetch_artifact; then
-        unzip -o "$TMP_ZIP" -d "$DOCROOT"
-    fi
-fi
-
-# Install PHP + Apache if missing (adjust package names if your AMI differs)
+# Install PHP + Apache
 install_if_missing php php
 install_if_missing httpd httpd || install_if_missing apache2 apache2 || true
 
-# Configure DB settings
-cat > $${DOCROOT}/api/db_config.php <<'PHPEOF'
+# Set document root
+DOCROOT=/var/www/html
+mkdir -p "$DOCROOT"
+mkdir -p "$DOCROOT/api"
+
+# =============================================================================
+# CREATE PLACEHOLDER PAGE
+# =============================================================================
+echo "Creating placeholder page..."
+
+cat > "$DOCROOT/index.php" <<'PLACEHOLDER_EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Food Ordering System</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+        .container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); max-width: 600px; margin: 0 auto; }
+        h1 { color: #333; }
+        p { color: #666; line-height: 1.6; }
+        .status { color: #4CAF50; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍕 Food Ordering System</h1>
+        <p class="status">✓ Infrastructure Provisioned Successfully</p>
+        <p>The server is ready and waiting for application deployment.</p>
+        <p>To deploy the application, run the <strong>PHP Deploy</strong> workflow from GitHub Actions.</p>
+        <hr>
+        <p><small>Server Time: <?php echo date('Y-m-d H:i:s'); ?></small></p>
+    </div>
+</body>
+</html>
+PLACEHOLDER_EOF
+
+# =============================================================================
+# CREATE DATABASE CONFIG TEMPLATE
+# =============================================================================
+echo "Creating database config template..."
+
+cat > "$DOCROOT/api/db_config.php" <<'PHPEOF'
 <?php
+// Database configuration - Injected by Terraform
+putenv('DB_HOST=${db_endpoint}');
+putenv('DB_NAME=${db_name}');
+putenv('DB_USER=${db_username}');
+putenv('DB_PASS=${db_password}');
+
 $_ENV['DB_HOST'] = '${db_endpoint}';
 $_ENV['DB_NAME'] = '${db_name}';
 $_ENV['DB_USER'] = '${db_username}';
@@ -108,8 +113,18 @@ $_ENV['DB_PASS'] = '${db_password}';
 ?>
 PHPEOF
 
+# =============================================================================
+# SET PERMISSIONS
+# =============================================================================
+echo "Setting permissions..."
+
 chown -R apache:apache "$DOCROOT" || chown -R www-data:www-data "$DOCROOT" || true
 chmod -R 755 "$DOCROOT"
+
+# =============================================================================
+# START WEB SERVER
+# =============================================================================
+echo "Starting Apache web server..."
 
 # Start web server
 systemctl enable --now httpd || systemctl enable --now apache2 || true
