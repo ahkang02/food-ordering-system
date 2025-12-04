@@ -95,26 +95,28 @@ jobs:
         for INSTANCE_ID in $INSTANCE_IDS; do
           echo "Deploying to instance: $INSTANCE_ID"
 
-          # Create a temporary parameters JSON file for SSM using Python to avoid YAML/heredoc issues
+          # Create a temporary parameters JSON file for SSM using jq
           PARAMS_FILE=$(mktemp)
-          python3 -c "
-          import json
-          commands = [
-              'cd /var/www/html',
-              'sudo aws s3 cp s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY ./deployment-package.zip',
-              'sudo unzip -o deployment-package.zip',
-              'sudo sed -i \"s|__DB_ENDPOINT__|$DB_ENDPOINT|g\" api/db_config.php',
-              'sudo sed -i \"s|__DB_NAME__|foodordering|g\" api/db_config.php',
-              'sudo sed -i \"s|__DB_USERNAME__|$DB_USERNAME|g\" api/db_config.php',
-              'sudo sed -i \"s|__DB_PASSWORD__|$DB_PASSWORD|g\" api/db_config.php',
-              'sudo chown -R apache:apache /var/www/html || sudo chown -R www-data:www-data /var/www/html',
-              'sudo chmod -R 755 /var/www/html',
-              'sudo systemctl reload httpd || sudo systemctl reload apache2',
-              'echo \"Deployment completed successfully\"'
-          ]
-          with open('$PARAMS_FILE', 'w') as f:
-              json.dump({'commands': commands}, f)
-          "
+          jq -n \
+            --arg bucket "${{ vars.S3_BUCKET_NAME }}" \
+            --arg key "$DEPLOYMENT_KEY" \
+            --arg db_endpoint "$DB_ENDPOINT" \
+            --arg db_name "foodordering" \
+            --arg db_user "$DB_USERNAME" \
+            --arg db_pass "$DB_PASSWORD" \
+            '{commands: [
+              "cd /var/www/html",
+              ("sudo aws s3 cp s3://" + $bucket + "/" + $key + " ./deployment-package.zip"),
+              "sudo unzip -o deployment-package.zip",
+              ("sudo sed -i \"s|__DB_ENDPOINT__|" + $db_endpoint + "|g\" api/db_config.php"),
+              ("sudo sed -i \"s|__DB_NAME__|" + $db_name + "|g\" api/db_config.php"),
+              ("sudo sed -i \"s|__DB_USERNAME__|" + $db_user + "|g\" api/db_config.php"),
+              ("sudo sed -i \"s|__DB_PASSWORD__|" + $db_pass + "|g\" api/db_config.php"),
+              "sudo chown -R apache:apache /var/www/html || sudo chown -R www-data:www-data /var/www/html",
+              "sudo chmod -R 755 /var/www/html",
+              "sudo systemctl reload httpd || sudo systemctl reload apache2",
+              "echo \"Deployment completed successfully\""
+            ]}' > "$PARAMS_FILE"
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
@@ -181,18 +183,17 @@ jobs:
         fi
         
         PARAMS_FILE=$(mktemp)
-        python3 -c "
-        import json
-        commands = [
-            'export DB_ENDPOINT=\'$DB_ENDPOINT\'',
-            'export DB_USERNAME=\'$DB_USERNAME\'',
-            'export DB_PASSWORD=\'$DB_PASSWORD\'',
-            'chmod +x /var/www/html/scripts/migrate-php-db.sh',
-            '/var/www/html/scripts/migrate-php-db.sh'
-        ]
-        with open('$PARAMS_FILE', 'w') as f:
-            json.dump({'commands': commands}, f)
-        "
+        jq -n \
+          --arg db_endpoint "$DB_ENDPOINT" \
+          --arg db_user "$DB_USERNAME" \
+          --arg db_pass "$DB_PASSWORD" \
+          '{commands: [
+            ("export DB_ENDPOINT='\''" + $db_endpoint + "'\''"),
+            ("export DB_USERNAME='\''" + $db_user + "'\''"),
+            ("export DB_PASSWORD='\''" + $db_pass + "'\''"),
+            "chmod +x /var/www/html/scripts/migrate-php-db.sh",
+            "/var/www/html/scripts/migrate-php-db.sh"
+          ]}' > "$PARAMS_FILE"
         
         COMMAND_ID=$(aws ssm send-command \
           --instance-ids "$FIRST_INSTANCE" \

@@ -124,24 +124,22 @@ jobs:
           for INSTANCE_ID in $INSTANCE_IDS; do
             echo "Deploying to instance: $INSTANCE_ID"
 
-            # Create a temporary parameters JSON file for SSM using Python to avoid YAML/heredoc issues
+            # Create a temporary parameters JSON file for SSM using jq
             PARAMS_FILE=$(mktemp)
-            python3 -c "
-            import json
-            commands = [
-                'cd /var/www/foodordering',
-                'sudo systemctl stop foodordering || true',
-                'aws s3 cp s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY ./deployment-package.zip',
-                'unzip -o deployment-package.zip',
-                'sudo chown -R ec2-user:ec2-user .',
-                'sudo chmod +x FoodOrdering',
-                'sudo systemctl start foodordering',
-                'sleep 5',
-                'sudo systemctl status foodordering --no-pager'
-            ]
-            with open('$PARAMS_FILE', 'w') as f:
-                json.dump({'commands': commands}, f)
-            "
+            jq -n \
+              --arg bucket "${{ vars.S3_BUCKET_NAME }}" \
+              --arg key "$DEPLOYMENT_KEY" \
+              '{commands: [
+                "cd /var/www/foodordering",
+                "sudo systemctl stop foodordering || true",
+                ("aws s3 cp s3://" + $bucket + "/" + $key + " ./deployment-package.zip"),
+                "unzip -o deployment-package.zip",
+                "sudo chown -R ec2-user:ec2-user .",
+                "sudo chmod +x FoodOrdering",
+                "sudo systemctl start foodordering",
+                "sleep 5",
+                "sudo systemctl status foodordering --no-pager"
+              ]}' > "$PARAMS_FILE"
 
             COMMAND_ID=$(aws ssm send-command \
               --instance-ids "$INSTANCE_ID" \
@@ -208,18 +206,17 @@ jobs:
           fi
           
           PARAMS_FILE=$(mktemp)
-          python3 -c "
-          import json
-          commands = [
-              'export DB_ENDPOINT=\'$DB_ENDPOINT\'',
-              'export DB_USERNAME=\'$DB_USERNAME\'',
-              'export DB_PASSWORD=\'$DB_PASSWORD\'',
-              'chmod +x /var/www/foodordering/scripts/migrate-dotnet-db.sh',
-              '/var/www/foodordering/scripts/migrate-dotnet-db.sh'
-          ]
-          with open('$PARAMS_FILE', 'w') as f:
-              json.dump({'commands': commands}, f)
-          "
+          jq -n \
+            --arg db_endpoint "$DB_ENDPOINT" \
+            --arg db_user "$DB_USERNAME" \
+            --arg db_pass "$DB_PASSWORD" \
+            '{commands: [
+              ("export DB_ENDPOINT='\''" + $db_endpoint + "'\''"),
+              ("export DB_USERNAME='\''" + $db_user + "'\''"),
+              ("export DB_PASSWORD='\''" + $db_pass + "'\''"),
+              "chmod +x /var/www/foodordering/scripts/migrate-dotnet-db.sh",
+              "/var/www/foodordering/scripts/migrate-dotnet-db.sh"
+            ]}' > "$PARAMS_FILE"
           
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$FIRST_INSTANCE" \
