@@ -36,11 +36,26 @@ jobs:
 
     - name: Create deployment package
       run: |
-        cd php-food-ordering
+        # Create a temporary directory for packaging
+        mkdir -p deployment-temp
+        
+        # Copy PHP application files
+        cp -r php-food-ordering/* deployment-temp/
+        
+        # Copy migration scripts
+        mkdir -p deployment-temp/scripts
+        cp scripts/migrate-php-db.sh deployment-temp/scripts/
+        
+        # Create the zip package
+        cd deployment-temp
         zip -r ../php-deployment-package.zip .
         cd ..
+        
         echo "Package created: php-deployment-package.zip"
         ls -lh php-deployment-package.zip
+        
+        # Cleanup
+        rm -rf deployment-temp
 
     - name: Upload artifact to GitHub
       uses: actions/upload-artifact@v4

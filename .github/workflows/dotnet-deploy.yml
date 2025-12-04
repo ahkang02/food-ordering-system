@@ -56,11 +56,26 @@ jobs:
 
       - name: Create deployment package
         run: |
-          cd dotnet-food-ordering/publish
-          zip -r ../../dotnet-deployment-package.zip .
-          cd ../..
+          # Create a temporary directory for packaging
+          mkdir -p deployment-temp
+          
+          # Copy .NET published files
+          cp -r dotnet-food-ordering/bin/Release/net8.0/publish/* deployment-temp/
+          
+          # Copy migration scripts
+          mkdir -p deployment-temp/scripts
+          cp scripts/migrate-dotnet-db.sh deployment-temp/scripts/
+          
+          # Create the zip package
+          cd deployment-temp
+          zip -r ../dotnet-deployment-package.zip .
+          cd ..
+          
           echo "Package created: dotnet-deployment-package.zip"
           ls -lh dotnet-deployment-package.zip
+          
+          # Cleanup
+          rm -rf deployment-temp
 
       - name: Upload artifact to GitHub
         uses: actions/upload-artifact@v4
