@@ -81,7 +81,7 @@ jobs:
         working-directory: ./terraform
         run: tofu init
       
-      - name: Terraform Apply
+      - name: Terraform Plan
         working-directory: ./terraform
         env:
           TF_VAR_application_type: ${{ inputs.application_type }}
@@ -89,8 +89,12 @@ jobs:
           TF_VAR_db_name: foodordering
           TF_VAR_db_username: admin
         run: |
-          tofu apply -auto-approve \
+          tofu plan -out=tfplan \
             -var="application_type=${{ inputs.application_type }}"
+
+      - name: Terraform Apply
+        working-directory: ./terraform
+        run: tofu apply -auto-approve tfplan
       
       - name: Get Outputs
         id: outputs
