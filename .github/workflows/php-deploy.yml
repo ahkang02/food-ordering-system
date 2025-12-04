@@ -188,16 +188,8 @@ jobs:
           --arg db_user "$DB_USERNAME" \
           --arg db_pass "$DB_PASSWORD" \
           '{commands: [
-            "cat > /tmp/run_migration.sh <<EOF",
-            "export DB_ENDPOINT=\"\($db_endpoint)\"",
-            "export DB_USERNAME=\"\($db_user)\"",
-            "export DB_PASSWORD=\"\($db_pass)\"",
             "chmod +x /var/www/html/scripts/migrate-php-db.sh",
-            "/var/www/html/scripts/migrate-php-db.sh",
-            "EOF",
-            "chmod +x /tmp/run_migration.sh",
-            "/tmp/run_migration.sh",
-            "rm -f /tmp/run_migration.sh"
+            ("/var/www/html/scripts/migrate-php-db.sh \"" + $db_endpoint + "\" \"" + $db_user + "\" \"" + $db_pass + "\"")
           ]}' > "$PARAMS_FILE"
         
         COMMAND_ID=$(aws ssm send-command \

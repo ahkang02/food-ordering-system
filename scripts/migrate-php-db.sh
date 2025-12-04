@@ -3,15 +3,28 @@ set -e
 
 echo "=== PHP Database Migration Script ==="
 
-# Check required environment variables
+# Accept command-line arguments OR environment variables
+# Usage: ./migrate-php-db.sh [DB_ENDPOINT] [DB_USERNAME] [DB_PASSWORD]
+if [ -n "$1" ]; then
+    DB_ENDPOINT="$1"
+fi
+if [ -n "$2" ]; then
+    DB_USERNAME="$2"
+fi
+if [ -n "$3" ]; then
+    DB_PASSWORD="$3"
+fi
+
+# Check required variables
 if [ -z "$DB_ENDPOINT" ] || [ -z "$DB_USERNAME" ] || [ -z "$DB_PASSWORD" ]; then
-    echo "Error: Required environment variables not set"
-    echo "Required: DB_ENDPOINT, DB_USERNAME, DB_PASSWORD"
+    echo "Error: Required database credentials not set"
+    echo "Usage: $0 <DB_ENDPOINT> <DB_USERNAME> <DB_PASSWORD>"
+    echo "   OR: Set environment variables DB_ENDPOINT, DB_USERNAME, DB_PASSWORD"
     exit 1
 fi
 
 DB_NAME="foodordering"
-SCHEMA_FILE="/var/www/html/php-food-ordering/database-schema.sql"
+SCHEMA_FILE="/var/www/html/database-schema.sql"
 
 echo "Database: $DB_NAME"
 echo "Endpoint: $DB_ENDPOINT"
