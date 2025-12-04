@@ -78,27 +78,21 @@ jobs:
           tofu_version: "1.6.0"
       
       - name: Terraform Init
-        working-directory: ./terraform
-        run: tofu init
+        working-directory: terraform
+        run: tofu init -input=false
       
       - name: Terraform Plan
-        working-directory: ./terraform
-        env:
-          TF_VAR_application_type: ${{ inputs.application_type }}
-          TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
-          TF_VAR_db_name: foodordering
-          TF_VAR_db_username: admin
-        run: |
-          tofu plan -out=tfplan \
-            -var="application_type=${{ inputs.application_type }}"
+        working-directory: terraform
+        run: tofu plan -input=false
 
       - name: Terraform Apply
-        working-directory: ./terraform
-        run: tofu apply -auto-approve tfplan
+        working-directory: terraform
+        run: |
+          tofu apply -input=false -auto-approve
       
       - name: Get Outputs
         id: outputs
-        working-directory: ./terraform
+        working-directory: terraform
         run: |
           echo "db_endpoint=$(tofu output -raw db_endpoint)" >> $GITHUB_OUTPUT
           echo "alb_dns=$(tofu output -raw alb_dns_name)" >> $GITHUB_OUTPUT
