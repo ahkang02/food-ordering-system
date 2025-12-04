@@ -68,9 +68,15 @@ jobs:
       run: |
         DEPLOYMENT_VERSION=$(date +%Y%m%d-%H%M%S)-${{ github.sha }}
         DEPLOYMENT_KEY="php-deployments/$DEPLOYMENT_VERSION.zip"
+        
+        # Upload versioned package
         aws s3 cp php-deployment-package.zip s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY
         echo "DEPLOYMENT_KEY=$DEPLOYMENT_KEY" >> $GITHUB_ENV
-        echo "Deployed to S3: s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY"
+        echo "Deployed versioned package to: s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY"
+        
+        # Upload as latest.zip for new instance bootstrapping
+        aws s3 cp php-deployment-package.zip s3://${{ vars.S3_BUCKET_NAME }}/php-deployments/latest.zip
+        echo "Updated latest.zip for new instances"
 
     - name: Deploy to EC2 via SSM
       env:

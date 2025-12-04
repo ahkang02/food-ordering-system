@@ -65,13 +65,37 @@ $PKG_MGR -y install mariadb105 || $PKG_MGR -y install mysql || $PKG_MGR -y insta
 DOCROOT=/var/www/html
 mkdir -p "$DOCROOT"
 mkdir -p "$DOCROOT/api"
+mkdir -p "$DOCROOT/scripts"
 
 # =============================================================================
-# CREATE PLACEHOLDER PAGE
+# DEPLOY APPLICATION FROM S3
 # =============================================================================
-echo "Creating placeholder page..."
+echo "Checking for latest deployment in S3..."
 
-cat > "$DOCROOT/index.php" <<'PLACEHOLDER_EOF'
+S3_BUCKET="${s3_bucket_name}"
+LATEST_PACKAGE="s3://$S3_BUCKET/php-deployments/latest.zip"
+
+if aws s3 ls "$LATEST_PACKAGE" > /dev/null 2>&1; then
+    echo "Found latest.zip in S3, deploying application..."
+    
+    # Download and extract
+    aws s3 cp "$LATEST_PACKAGE" /tmp/latest.zip
+    unzip -o /tmp/latest.zip -d "$DOCROOT"
+    rm -f /tmp/latest.zip
+    
+    # Configure database credentials
+    if [ -f "$DOCROOT/api/db_config.php" ]; then
+        echo "Configuring database connection..."
+        sed -i "s|__DB_ENDPOINT__|${db_endpoint}|g" "$DOCROOT/api/db_config.php"
+        sed -i "s|__DB_NAME__|${db_name}|g" "$DOCROOT/api/db_config.php"
+        sed -i "s|__DB_USERNAME__|${db_username}|g" "$DOCROOT/api/db_config.php"
+        sed -i "s|__DB_PASSWORD__|${db_password}|g" "$DOCROOT/api/db_config.php"
+    fi
+    
+    echo "Application deployed from S3!"
+else
+    echo "No latest.zip found in S3 - creating placeholder page..."
+    cat > "$DOCROOT/index.php" <<'PLACEHOLDER_EOF'
 <!DOCTYPE html>
 <html>
 <head>
@@ -81,41 +105,21 @@ cat > "$DOCROOT/index.php" <<'PLACEHOLDER_EOF'
         .container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); max-width: 600px; margin: 0 auto; }
         h1 { color: #333; }
         p { color: #666; line-height: 1.6; }
-        .status { color: #4CAF50; font-weight: bold; }
+        .status { color: #FF9800; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🍕 Food Ordering System</h1>
-        <p class="status">✓ Infrastructure Provisioned Successfully</p>
-        <p>The server is ready and waiting for application deployment.</p>
-        <p>To deploy the application, run the <strong>PHP Deploy</strong> workflow from GitHub Actions.</p>
+        <p class="status">⏳ Waiting for First Deployment</p>
+        <p>Infrastructure is ready. Run the <strong>Deploy PHP Application</strong> workflow to deploy.</p>
         <hr>
         <p><small>Server Time: <?php echo date('Y-m-d H:i:s'); ?></small></p>
     </div>
 </body>
 </html>
 PLACEHOLDER_EOF
-
-# =============================================================================
-# CREATE DATABASE CONFIG TEMPLATE
-# =============================================================================
-echo "Creating database config template..."
-
-cat > "$DOCROOT/api/db_config.php" <<'PHPEOF'
-<?php
-// Database configuration - Injected by Terraform
-putenv('DB_HOST=${db_endpoint}');
-putenv('DB_NAME=${db_name}');
-putenv('DB_USER=${db_username}');
-putenv('DB_PASS=${db_password}');
-
-$_ENV['DB_HOST'] = '${db_endpoint}';
-$_ENV['DB_NAME'] = '${db_name}';
-$_ENV['DB_USER'] = '${db_username}';
-$_ENV['DB_PASS'] = '${db_password}';
-?>
-PHPEOF
+fi
 
 # =============================================================================
 # SET PERMISSIONS

@@ -1,0 +1,445 @@
+name: 🚀 Full Setup (Learner Lab)
+
+on:
+  workflow_dispatch:
+    inputs:
+      application_type:
+        description: 'Application to deploy'
+        required: true
+        default: 'php'
+        type: choice
+        options:
+          - php
+          - dotnet
+      cleanup_first:
+        description: 'Run cleanup before provisioning'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  AWS_REGION: us-east-1
+  TF_VAR_application_type: ${{ inputs.application_type }}
+  TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+  TF_VAR_db_name: foodordering
+  TF_VAR_db_username: admin
+
+jobs:
+  # ==========================================================================
+  # STEP 1: CLEANUP (Optional)
+  # ==========================================================================
+  cleanup:
+    name: 🧹 Cleanup Old Resources
+    runs-on: ubuntu-latest
+    if: ${{ inputs.cleanup_first }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Run Force Cleanup
+        working-directory: ./terraform
+        run: |
+          chmod +x force-cleanup.sh
+          ./force-cleanup.sh || true
+          echo "Cleanup completed"
+
+  # ==========================================================================
+  # STEP 2: PROVISION INFRASTRUCTURE
+  # ==========================================================================
+  provision:
+    name: 🏗️ Provision Infrastructure
+    runs-on: ubuntu-latest
+    needs: [cleanup]
+    if: always() && (needs.cleanup.result == 'success' || needs.cleanup.result == 'skipped')
+    outputs:
+      db_endpoint: ${{ steps.outputs.outputs.db_endpoint }}
+      alb_dns: ${{ steps.outputs.outputs.alb_dns }}
+      s3_bucket: ${{ steps.outputs.outputs.s3_bucket }}
+      asg_name: ${{ steps.outputs.outputs.asg_name }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.6.0"
+      
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: tofu init
+      
+      - name: Terraform Apply
+        working-directory: ./terraform
+        run: |
+          tofu apply -auto-approve \
+            -var="application_type=${{ inputs.application_type }}"
+      
+      - name: Get Outputs
+        id: outputs
+        working-directory: ./terraform
+        run: |
+          echo "db_endpoint=$(tofu output -raw db_endpoint)" >> $GITHUB_OUTPUT
+          echo "alb_dns=$(tofu output -raw alb_dns_name)" >> $GITHUB_OUTPUT
+          echo "s3_bucket=$(tofu output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
+          echo "asg_name=$(tofu output -raw asg_name)" >> $GITHUB_OUTPUT
+      
+      - name: Wait for instances to be ready
+        run: |
+          echo "Waiting 60 seconds for instances to initialize..."
+          sleep 60
+
+  # ==========================================================================
+  # STEP 3: BUILD & DEPLOY PHP
+  # ==========================================================================
+  deploy-php:
+    name: 🐘 Deploy PHP Application
+    runs-on: ubuntu-latest
+    needs: [provision]
+    if: inputs.application_type == 'php'
+    env:
+      DB_ENDPOINT: ${{ needs.provision.outputs.db_endpoint }}
+      S3_BUCKET: ${{ needs.provision.outputs.s3_bucket }}
+      ASG_NAME: ${{ needs.provision.outputs.asg_name }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Create deployment package
+        run: |
+          mkdir -p deployment-temp
+          cp -r php-food-ordering/* deployment-temp/
+          mkdir -p deployment-temp/scripts
+          cp scripts/migrate-php-db.sh deployment-temp/scripts/
+          cd deployment-temp
+          zip -r ../php-deployment-package.zip .
+          cd ..
+          rm -rf deployment-temp
+          echo "Package created: $(ls -lh php-deployment-package.zip)"
+      
+      - name: Upload to S3
+        run: |
+          DEPLOYMENT_VERSION=$(date +%Y%m%d-%H%M%S)-${{ github.sha }}
+          DEPLOYMENT_KEY="php-deployments/$DEPLOYMENT_VERSION.zip"
+          
+          aws s3 cp php-deployment-package.zip s3://$S3_BUCKET/$DEPLOYMENT_KEY
+          aws s3 cp php-deployment-package.zip s3://$S3_BUCKET/php-deployments/latest.zip
+          
+          echo "DEPLOYMENT_KEY=$DEPLOYMENT_KEY" >> $GITHUB_ENV
+          echo "Uploaded to S3"
+      
+      - name: Wait for instances to pull from S3
+        run: |
+          echo "Waiting for instances to become healthy with app..."
+          sleep 30
+      
+      - name: Deploy to running instances via SSM
+        env:
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          # Get healthy instances
+          INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+            --auto-scaling-group-names $ASG_NAME \
+            --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`].InstanceId' \
+            --output text)
+          
+          if [ -z "$INSTANCE_IDS" ]; then
+            echo "No healthy instances yet, waiting..."
+            sleep 60
+            INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names $ASG_NAME \
+              --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`].InstanceId' \
+              --output text)
+          fi
+          
+          echo "Target instances: $INSTANCE_IDS"
+          
+          for INSTANCE_ID in $INSTANCE_IDS; do
+            echo "Deploying to instance: $INSTANCE_ID"
+            
+            # Wait for SSM agent
+            MAX_ATTEMPTS=30
+            ATTEMPT=0
+            while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+              STATUS=$(aws ssm describe-instance-information \
+                --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+                --query 'InstanceInformationList[0].PingStatus' \
+                --output text 2>/dev/null || echo "NotFound")
+              
+              if [ "$STATUS" = "Online" ]; then
+                echo "Instance ready for SSM"
+                break
+              fi
+              
+              ATTEMPT=$((ATTEMPT + 1))
+              echo "Waiting for SSM agent... ($ATTEMPT/$MAX_ATTEMPTS)"
+              sleep 10
+            done
+            
+            # Deploy
+            PARAMS_FILE=$(mktemp)
+            jq -n \
+              --arg bucket "$S3_BUCKET" \
+              --arg key "$DEPLOYMENT_KEY" \
+              --arg db_endpoint "$DB_ENDPOINT" \
+              --arg db_user "$DB_USERNAME" \
+              --arg db_pass "$DB_PASSWORD" \
+              '{commands: [
+                "cd /var/www/html",
+                ("aws s3 cp s3://" + $bucket + "/" + $key + " ./deployment-package.zip"),
+                "sudo unzip -o deployment-package.zip",
+                ("sudo sed -i \"s|__DB_ENDPOINT__|" + $db_endpoint + "|g\" api/db_config.php"),
+                ("sudo sed -i \"s|__DB_NAME__|foodordering|g\" api/db_config.php"),
+                ("sudo sed -i \"s|__DB_USERNAME__|" + $db_user + "|g\" api/db_config.php"),
+                ("sudo sed -i \"s|__DB_PASSWORD__|" + $db_pass + "|g\" api/db_config.php"),
+                "sudo chown -R apache:apache /var/www/html",
+                "sudo systemctl reload httpd"
+              ]}' > "$PARAMS_FILE"
+            
+            aws ssm send-command \
+              --instance-ids "$INSTANCE_ID" \
+              --document-name "AWS-RunShellScript" \
+              --parameters file://"$PARAMS_FILE" || true
+            
+            rm -f "$PARAMS_FILE"
+          done
+      
+      - name: Run database migrations
+        env:
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+            --auto-scaling-group-names $ASG_NAME \
+            --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`].InstanceId' \
+            --output text)
+          
+          FIRST_INSTANCE=$(echo $INSTANCE_IDS | awk '{print $1}')
+          echo "Running migrations on: $FIRST_INSTANCE"
+          
+          PARAMS_FILE=$(mktemp)
+          jq -n \
+            --arg db_endpoint "$DB_ENDPOINT" \
+            --arg db_user "$DB_USERNAME" \
+            --arg db_pass "$DB_PASSWORD" \
+            '{commands: [
+              "chmod +x /var/www/html/scripts/migrate-php-db.sh",
+              ("/var/www/html/scripts/migrate-php-db.sh \"" + $db_endpoint + "\" \"" + $db_user + "\" \"" + $db_pass + "\"")
+            ]}' > "$PARAMS_FILE"
+          
+          aws ssm send-command \
+            --instance-ids "$FIRST_INSTANCE" \
+            --document-name "AWS-RunShellScript" \
+            --parameters file://"$PARAMS_FILE" || true
+          
+          rm -f "$PARAMS_FILE"
+          echo "Migration initiated"
+
+  # ==========================================================================
+  # STEP 3B: BUILD & DEPLOY .NET
+  # ==========================================================================
+  deploy-dotnet:
+    name: 🔷 Deploy .NET Application
+    runs-on: ubuntu-latest
+    needs: [provision]
+    if: inputs.application_type == 'dotnet'
+    env:
+      DB_ENDPOINT: ${{ needs.provision.outputs.db_endpoint }}
+      S3_BUCKET: ${{ needs.provision.outputs.s3_bucket }}
+      ASG_NAME: ${{ needs.provision.outputs.asg_name }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      
+      - name: Restore dependencies
+        working-directory: ./dotnet-food-ordering
+        run: dotnet restore
+      
+      - name: Build application
+        working-directory: ./dotnet-food-ordering
+        run: dotnet build --configuration Release --no-restore
+      
+      - name: Publish application
+        working-directory: ./dotnet-food-ordering
+        run: dotnet publish --configuration Release --output ./publish --no-build
+      
+      - name: Create deployment package
+        run: |
+          mkdir -p deployment-temp
+          cp -r dotnet-food-ordering/publish/* deployment-temp/
+          mkdir -p deployment-temp/scripts
+          cp scripts/migrate-dotnet-db.sh deployment-temp/scripts/
+          cd deployment-temp
+          zip -r ../dotnet-deployment-package.zip .
+          cd ..
+          rm -rf deployment-temp
+          echo "Package created: $(ls -lh dotnet-deployment-package.zip)"
+      
+      - name: Upload to S3
+        run: |
+          DEPLOYMENT_VERSION=$(date +%Y%m%d-%H%M%S)-${{ github.sha }}
+          DEPLOYMENT_KEY="dotnet-deployments/$DEPLOYMENT_VERSION.zip"
+          
+          aws s3 cp dotnet-deployment-package.zip s3://$S3_BUCKET/$DEPLOYMENT_KEY
+          aws s3 cp dotnet-deployment-package.zip s3://$S3_BUCKET/dotnet-deployments/latest.zip
+          
+          echo "DEPLOYMENT_KEY=$DEPLOYMENT_KEY" >> $GITHUB_ENV
+          echo "Uploaded to S3"
+      
+      - name: Wait for instances to pull from S3
+        run: |
+          echo "Waiting for instances to become healthy with app..."
+          sleep 30
+      
+      - name: Deploy to running instances via SSM
+        run: |
+          # Get healthy instances
+          INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+            --auto-scaling-group-names $ASG_NAME \
+            --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`].InstanceId' \
+            --output text)
+          
+          if [ -z "$INSTANCE_IDS" ]; then
+            echo "No healthy instances yet, waiting..."
+            sleep 60
+            INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names $ASG_NAME \
+              --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`].InstanceId' \
+              --output text)
+          fi
+          
+          echo "Target instances: $INSTANCE_IDS"
+          
+          for INSTANCE_ID in $INSTANCE_IDS; do
+            echo "Deploying to instance: $INSTANCE_ID"
+            
+            # Wait for SSM agent
+            MAX_ATTEMPTS=30
+            ATTEMPT=0
+            while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+              STATUS=$(aws ssm describe-instance-information \
+                --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+                --query 'InstanceInformationList[0].PingStatus' \
+                --output text 2>/dev/null || echo "NotFound")
+              
+              if [ "$STATUS" = "Online" ]; then
+                echo "Instance ready for SSM"
+                break
+              fi
+              
+              ATTEMPT=$((ATTEMPT + 1))
+              echo "Waiting for SSM agent... ($ATTEMPT/$MAX_ATTEMPTS)"
+              sleep 10
+            done
+            
+            # Deploy
+            PARAMS_FILE=$(mktemp)
+            jq -n \
+              --arg bucket "$S3_BUCKET" \
+              --arg key "$DEPLOYMENT_KEY" \
+              '{commands: [
+                "cd /var/www/foodordering",
+                "sudo systemctl stop foodordering || true",
+                ("aws s3 cp s3://" + $bucket + "/" + $key + " ./deployment-package.zip"),
+                "sudo unzip -o deployment-package.zip",
+                "sudo chown -R ec2-user:ec2-user .",
+                "sudo chmod +x FoodOrdering 2>/dev/null || true",
+                "sudo systemctl start foodordering"
+              ]}' > "$PARAMS_FILE"
+            
+            aws ssm send-command \
+              --instance-ids "$INSTANCE_ID" \
+              --document-name "AWS-RunShellScript" \
+              --parameters file://"$PARAMS_FILE" || true
+            
+            rm -f "$PARAMS_FILE"
+          done
+      
+      - name: Run database migrations
+        env:
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+            --auto-scaling-group-names $ASG_NAME \
+            --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`].InstanceId' \
+            --output text)
+          
+          FIRST_INSTANCE=$(echo $INSTANCE_IDS | awk '{print $1}')
+          echo "Running migrations on: $FIRST_INSTANCE"
+          
+          PARAMS_FILE=$(mktemp)
+          jq -n \
+            --arg db_endpoint "$DB_ENDPOINT" \
+            --arg db_user "$DB_USERNAME" \
+            --arg db_pass "$DB_PASSWORD" \
+            '{commands: [
+              "chmod +x /var/www/foodordering/scripts/migrate-dotnet-db.sh",
+              ("/var/www/foodordering/scripts/migrate-dotnet-db.sh \"" + $db_endpoint + "\" \"" + $db_user + "\" \"" + $db_pass + "\"")
+            ]}' > "$PARAMS_FILE"
+          
+          aws ssm send-command \
+            --instance-ids "$FIRST_INSTANCE" \
+            --document-name "AWS-RunShellScript" \
+            --parameters file://"$PARAMS_FILE" || true
+          
+          rm -f "$PARAMS_FILE"
+          echo "Migration initiated"
+
+  # ==========================================================================
+  # STEP 4: SUMMARY
+  # ==========================================================================
+  summary:
+    name: 📋 Summary
+    runs-on: ubuntu-latest
+    needs: [provision, deploy-php, deploy-dotnet]
+    if: always()
+    steps:
+      - name: Print Summary
+        run: |
+          echo "=========================================="
+          echo "🚀 LEARNER LAB SETUP COMPLETE"
+          echo "=========================================="
+          echo ""
+          echo "Application Type: ${{ inputs.application_type }}"
+          echo "ALB DNS: ${{ needs.provision.outputs.alb_dns }}"
+          echo "Database: ${{ needs.provision.outputs.db_endpoint }}"
+          echo ""
+          echo "Access your app at:"
+          echo "http://${{ needs.provision.outputs.alb_dns }}"
+          echo ""
+          echo "=========================================="
