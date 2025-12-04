@@ -55,25 +55,25 @@ variable "db_password" {
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t3.micro"
+  default     = "t2.micro"  # Cheapest, free tier eligible
 }
 
 variable "min_size" {
   description = "Minimum number of instances in ASG"
   type        = number
-  default     = 2
+  default     = 1  # Minimum for cost savings
 }
 
 variable "max_size" {
   description = "Maximum number of instances in ASG"
   type        = number
-  default     = 4
+  default     = 2  # Reduced for cost savings
 }
 
 variable "desired_capacity" {
   description = "Desired number of instances in ASG"
   type        = number
-  default     = 2
+  default     = 1  # Start with 1 instance
 }
 
 variable "s3_bucket_name" {
