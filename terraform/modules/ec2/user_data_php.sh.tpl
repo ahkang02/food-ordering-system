@@ -57,6 +57,10 @@ echo "Installing PHP and Apache..."
 install_if_missing php php
 install_if_missing httpd httpd || install_if_missing apache2 apache2 || true
 
+# Install MySQL/MariaDB client for database migrations
+echo "Installing MySQL client..."
+$PKG_MGR -y install mariadb105 || $PKG_MGR -y install mysql || $PKG_MGR -y install mariadb || true
+
 # Set document root
 DOCROOT=/var/www/html
 mkdir -p "$DOCROOT"
