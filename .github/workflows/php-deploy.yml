@@ -78,31 +78,42 @@ jobs:
         DB_USERNAME: ${{ secrets.DB_USERNAME }}
         DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       run: |
+        # Get only healthy, in-service instances from ASG
         INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
           --auto-scaling-group-names ${{ vars.ASG_NAME }} \
-          --query 'AutoScalingGroups[0].Instances[*].InstanceId' \
+          --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`].InstanceId' \
           --output text)
         
+        if [ -z "$INSTANCE_IDS" ]; then
+          echo "ERROR: No healthy instances found in Auto Scaling Group"
+          exit 1
+        fi
+        
         echo "Deploying version: $DEPLOYMENT_KEY"
+        echo "Target instances: $INSTANCE_IDS"
         
         for INSTANCE_ID in $INSTANCE_IDS; do
           echo "Deploying to instance: $INSTANCE_ID"
 
           # Create a temporary parameters JSON file for SSM to avoid YAML/quoted inline mapping issues
           PARAMS_FILE=$(mktemp)
-          printf "%s\n" "{" "  \"commands\": [" \
-            "    \"cd /var/www/html\"," \
-            "    \"sudo aws s3 cp s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY ./deployment-package.zip\"," \
-            "    \"sudo unzip -o deployment-package.zip\"," \
-            "    \"sudo sed -i 's|__DB_ENDPOINT__|$DB_ENDPOINT|g' api/db_config.php\"," \
-            "    \"sudo sed -i 's|__DB_NAME__|foodordering|g' api/db_config.php\"," \
-            "    \"sudo sed -i 's|__DB_USERNAME__|$DB_USERNAME|g' api/db_config.php\"," \
-            "    \"sudo sed -i 's|__DB_PASSWORD__|$DB_PASSWORD|g' api/db_config.php\"," \
-            "    \"sudo chown -R apache:apache /var/www/html || sudo chown -R www-data:www-data /var/www/html\"," \
-            "    \"sudo chmod -R 755 /var/www/html\"," \
-            "    \"sudo systemctl reload httpd || sudo systemctl reload apache2\"," \
-            "    \"echo 'Deployment completed successfully'\"" \
-            "  ]" "}" > "$PARAMS_FILE"
+          cat > "$PARAMS_FILE" <<EOF
+{
+  "commands": [
+    "cd /var/www/html",
+    "sudo aws s3 cp s3://${{ vars.S3_BUCKET_NAME }}/$DEPLOYMENT_KEY ./deployment-package.zip",
+    "sudo unzip -o deployment-package.zip",
+    "sudo sed -i 's|__DB_ENDPOINT__|$DB_ENDPOINT|g' api/db_config.php",
+    "sudo sed -i 's|__DB_NAME__|foodordering|g' api/db_config.php",
+    "sudo sed -i 's|__DB_USERNAME__|$DB_USERNAME|g' api/db_config.php",
+    "sudo sed -i 's|__DB_PASSWORD__|$DB_PASSWORD|g' api/db_config.php",
+    "sudo chown -R apache:apache /var/www/html || sudo chown -R www-data:www-data /var/www/html",
+    "sudo chmod -R 755 /var/www/html",
+    "sudo systemctl reload httpd || sudo systemctl reload apache2",
+    "echo 'Deployment completed successfully'"
+  ]
+}
+EOF
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
@@ -128,23 +139,58 @@ jobs:
         DB_USERNAME: ${{ secrets.DB_USERNAME }}
         DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       run: |
+        # Get only healthy, in-service instances
         INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
           --auto-scaling-group-names ${{ vars.ASG_NAME }} \
-          --query 'AutoScalingGroups[0].Instances[*].InstanceId' \
+          --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`].InstanceId' \
           --output text)
         
-        # Run migration on first instance only
+        if [ -z "$INSTANCE_IDS" ]; then
+          echo "ERROR: No healthy instances found in Auto Scaling Group"
+          exit 1
+        fi
+        
+        # Run migration on first healthy instance only
         FIRST_INSTANCE=$(echo $INSTANCE_IDS | awk '{print $1}')
         echo "Running migrations on instance: $FIRST_INSTANCE"
         
+        # Wait for instance to be ready for SSM commands
+        echo "Waiting for instance to be ready for SSM..."
+        MAX_ATTEMPTS=30
+        ATTEMPT=0
+        while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+          INSTANCE_STATUS=$(aws ssm describe-instance-information \
+            --filters "Key=InstanceIds,Values=$FIRST_INSTANCE" \
+            --query 'InstanceInformationList[0].PingStatus' \
+            --output text 2>/dev/null || echo "NotFound")
+          
+          if [ "$INSTANCE_STATUS" = "Online" ]; then
+            echo "Instance is ready for SSM commands"
+            break
+          fi
+          
+          ATTEMPT=$((ATTEMPT + 1))
+          echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Instance status is $INSTANCE_STATUS, waiting..."
+          sleep 10
+        done
+        
+        if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+          echo "ERROR: Instance did not become ready for SSM commands in time"
+          exit 1
+        fi
+        
         PARAMS_FILE=$(mktemp)
-        printf "%s\n" "{" "  \"commands\": [" \
-          "    \"export DB_ENDPOINT=$DB_ENDPOINT\"," \
-          "    \"export DB_USERNAME=$DB_USERNAME\"," \
-          "    \"export DB_PASSWORD=$DB_PASSWORD\"," \
-          "    \"chmod +x /var/www/html/scripts/migrate-php-db.sh\"," \
-          "    \"/var/www/html/scripts/migrate-php-db.sh\"" \
-          "  ]" "}" > "$PARAMS_FILE"
+        cat > "$PARAMS_FILE" <<EOF
+{
+  "commands": [
+    "export DB_ENDPOINT='$DB_ENDPOINT'",
+    "export DB_USERNAME='$DB_USERNAME'",
+    "export DB_PASSWORD='$DB_PASSWORD'",
+    "chmod +x /var/www/html/scripts/migrate-php-db.sh",
+    "/var/www/html/scripts/migrate-php-db.sh"
+  ]
+}
+EOF
         
         COMMAND_ID=$(aws ssm send-command \
           --instance-ids "$FIRST_INSTANCE" \
