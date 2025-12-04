@@ -105,17 +105,29 @@ jobs:
             --arg db_user "$DB_USERNAME" \
             --arg db_pass "$DB_PASSWORD" \
             '{commands: [
+              "echo \"Starting deployment...\"",
               "cd /var/www/html",
+              "echo \"Current directory: $(pwd)\"",
+              "echo \"Downloading from S3...\"",
               ("sudo aws s3 cp s3://" + $bucket + "/" + $key + " ./deployment-package.zip"),
+              "echo \"Package downloaded. Size: $(ls -lh deployment-package.zip)\"",
+              "echo \"Removing old placeholder files...\"",
+              "sudo rm -f index.php 2>/dev/null || true",
+              "echo \"Extracting new files...\"",
               "sudo unzip -o deployment-package.zip",
+              "echo \"Files extracted. Listing:\"",
+              "ls -la",
+              "echo \"Updating database config...\"",
               ("sudo sed -i \"s|__DB_ENDPOINT__|" + $db_endpoint + "|g\" api/db_config.php"),
               ("sudo sed -i \"s|__DB_NAME__|" + $db_name + "|g\" api/db_config.php"),
               ("sudo sed -i \"s|__DB_USERNAME__|" + $db_user + "|g\" api/db_config.php"),
               ("sudo sed -i \"s|__DB_PASSWORD__|" + $db_pass + "|g\" api/db_config.php"),
+              "echo \"Setting permissions...\"",
               "sudo chown -R apache:apache /var/www/html || sudo chown -R www-data:www-data /var/www/html",
               "sudo chmod -R 755 /var/www/html",
+              "echo \"Reloading Apache...\"",
               "sudo systemctl reload httpd || sudo systemctl reload apache2",
-              "echo \"Deployment completed successfully\""
+              "echo \"Deployment completed successfully!\""
             ]}' > "$PARAMS_FILE"
 
           COMMAND_ID=$(aws ssm send-command \
