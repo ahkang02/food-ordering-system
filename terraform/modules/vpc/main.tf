@@ -47,7 +47,7 @@ resource "aws_subnet" "private" {
 
 # Elastic IPs for NAT Gateway (Reduced to 1)
 resource "aws_eip" "nat" {
-  count  = 1  # Only need 1 EIP for 1 NAT Gateway
+  count  = 1 # Only need 1 EIP for 1 NAT Gateway
   domain = "vpc"
 
   tags = {
@@ -59,7 +59,7 @@ resource "aws_eip" "nat" {
 
 # NAT Gateways (Reduced to 1 for cost savings in learner lab)
 resource "aws_nat_gateway" "main" {
-  count         = 1  # Reduced from 2 to save ~$32/month
+  count         = 1 # Reduced from 2 to save ~$32/month
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
 
@@ -98,7 +98,7 @@ resource "aws_route_table" "private" {
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main[0].id  # Both use the same NAT Gateway
+    nat_gateway_id = aws_nat_gateway.main[0].id # Both use the same NAT Gateway
   }
 
   tags = {
