@@ -6,9 +6,8 @@
 # Run this after SSH'ing into your EC2 instance
 #
 # Prerequisites:
-# 1. Upload dotnet-food-ordering published files to S3 bucket as dotnet-published.zip
-# 2. Have RDS endpoint, database name, username, and password ready
-# 3. EC2 instance should have IAM role with S3 read access
+# 1. Have RDS endpoint, database name, username, and password ready
+# 2. EC2 instance should have internet access for git clone
 #
 # Usage:
 #   chmod +x deploy-dotnet-manual.sh
@@ -20,7 +19,7 @@ set -euo pipefail
 # =============================================================================
 # CONFIGURATION - UPDATE THESE VALUES
 # =============================================================================
-S3_BUCKET_NAME="bucket-food-ordering-123456"  # Your S3 bucket name
+GIT_REPO_URL="https://github.com/ahkang02/food-ordering-system.git"  # Git repo URL
 DB_ENDPOINT="your-rds-endpoint.rds.amazonaws.com"  # RDS endpoint
 DB_NAME="foodordering"
 DB_USERNAME="admin"
@@ -50,38 +49,20 @@ echo "Using package manager: $PKG_MGR"
 # INSTALL SYSTEM PACKAGES
 # =============================================================================
 echo "Step 1: Installing system packages..."
-$PKG_MGR -y update
+$PKG_MGR -y update || true
 
 # Install essential tools
-$PKG_MGR -y install wget curl unzip tar gzip
-
-# Install AWS CLI if not present
-if ! command -v aws > /dev/null 2>&1; then
-    echo "Installing AWS CLI..."
-    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-    unzip -q awscliv2.zip
-    ./aws/install
-    rm -rf aws awscliv2.zip
-fi
+$PKG_MGR -y install wget curl unzip tar gzip git
 
 # Install MariaDB client for database operations
 echo "Installing MariaDB client..."
-$PKG_MGR -y install mariadb105-server
+$PKG_MGR -y install mariadb105-server || $PKG_MGR -y install mariadb-server || $PKG_MGR -y install mysql-server || true
 
-# Secure MariaDB installation (non-interactive)
-echo "Securing MariaDB installation..."
-# Start MariaDB service temporarily for secure installation
-systemctl start mariadb || true
-# Run mysql_secure_installation non-interactively
-mysql -e "UPDATE mysql.user SET Password=PASSWORD('') WHERE User='root';" 2>/dev/null || true
-mysql -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || true
-mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || true
-mysql -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || true
-mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || true
-mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
-# Stop local MariaDB as we're using RDS
-systemctl stop mariadb || true
-systemctl disable mariadb || true
+# Start MariaDB briefly to ensure mysql client works
+systemctl start mariadb || systemctl start mysql || true
+# Stop it since we're using RDS
+systemctl stop mariadb || systemctl stop mysql || true
+systemctl disable mariadb || systemctl disable mysql || true
 
 # =============================================================================
 # INSTALL .NET RUNTIME AND NGINX
@@ -89,69 +70,104 @@ systemctl disable mariadb || true
 echo "Step 2: Installing .NET 8 Runtime and Nginx..."
 
 # Install .NET 8 ASP.NET Core Runtime
-$PKG_MGR -y install aspnetcore-runtime-8.0
+$PKG_MGR -y install aspnetcore-runtime-8.0 || {
+    echo "aspnetcore-runtime-8.0 not found in repos, trying alternative installation..."
+    # Alternative: Install from Microsoft repo
+    rpm -Uvh https://packages.microsoft.com/config/rhel/8/packages-microsoft-prod.rpm || true
+    $PKG_MGR -y install aspnetcore-runtime-8.0
+}
 
 # Install Nginx as reverse proxy
 $PKG_MGR -y install nginx
 
 # Verify installations
-dotnet --version
-nginx -v
+dotnet --version || echo "dotnet not installed correctly"
+nginx -v || echo "nginx not installed correctly"
 
 # =============================================================================
-# PREPARE APPLICATION DIRECTORY
+# CLONE APPLICATION FROM GIT
 # =============================================================================
-echo "Step 3: Preparing application directory..."
+echo "Step 3: Cloning application from Git..."
+
+cd /tmp
+
+# Remove any previous clone
+rm -rf food-ordering-system
+
+# Clone the repository
+echo "Cloning from: $GIT_REPO_URL"
+git clone "$GIT_REPO_URL" food-ordering-system
+
+# Verify clone
+if [ ! -d "food-ordering-system/dotnet-food-ordering" ]; then
+    echo "ERROR: git clone failed or dotnet-food-ordering directory not found!"
+    exit 1
+fi
+
+echo "Git clone successful"
+ls -la food-ordering-system/
+
+# =============================================================================
+# BUILD AND PUBLISH .NET APPLICATION
+# =============================================================================
+echo "Step 4: Building and publishing .NET application..."
+
+# Install .NET SDK for building (if not present)
+if ! command -v dotnet > /dev/null 2>&1 || ! dotnet --list-sdks | grep -q "8.0"; then
+    echo "Installing .NET 8 SDK for building..."
+    $PKG_MGR -y install dotnet-sdk-8.0 || {
+        rpm -Uvh https://packages.microsoft.com/config/rhel/8/packages-microsoft-prod.rpm || true
+        $PKG_MGR -y install dotnet-sdk-8.0
+    }
+fi
+
+cd food-ordering-system/dotnet-food-ordering
+
+# Restore dependencies
+echo "Restoring dependencies..."
+dotnet restore
+
+# Build and publish
+echo "Publishing application..."
+dotnet publish -c Release -o /tmp/dotnet-publish
+
+# Verify build
+if [ ! -f "/tmp/dotnet-publish/FoodOrdering.dll" ]; then
+    echo "ERROR: FoodOrdering.dll not found after build!"
+    exit 1
+fi
+
+echo "Build successful"
+ls -la /tmp/dotnet-publish/
+
+# =============================================================================
+# DEPLOY APPLICATION FILES
+# =============================================================================
+echo "Step 5: Deploying application files..."
 
 APP_DIR="/var/www/foodordering"
 mkdir -p "$APP_DIR"
 
-# Set ownership to ec2-user (or current user)
-chown -R ec2-user:ec2-user "$APP_DIR"
+# Copy published files to application directory
+cp -r /tmp/dotnet-publish/* "$APP_DIR/"
 
-# =============================================================================
-# DOWNLOAD APPLICATION FROM S3
-# =============================================================================
-echo "Step 4: Downloading .NET application from S3..."
+# Copy database schema
+cp /tmp/food-ordering-system/dotnet-food-ordering/database-schema.sql "$APP_DIR/" 2>/dev/null || true
 
-cd /tmp
-
-# Try to get the latest deployment package
-LATEST_DEPLOYMENT=$(aws s3 ls s3://${S3_BUCKET_NAME}/dotnet-deployments/ --recursive | sort | tail -n 1 | awk '{print $4}' || true)
-
-if [ -n "$LATEST_DEPLOYMENT" ]; then
-    echo "Found latest deployment: $LATEST_DEPLOYMENT"
-    aws s3 cp "s3://${S3_BUCKET_NAME}/${LATEST_DEPLOYMENT}" ./deployment-package.zip
-    PACKAGE_FILE="deployment-package.zip"
-else
-    echo "No deployment found in dotnet-deployments/, trying generic artifact..."
-    aws s3 cp "s3://${S3_BUCKET_NAME}/dotnet-published.zip" ./dotnet-published.zip
-    PACKAGE_FILE="dotnet-published.zip"
-fi
-
-# =============================================================================
-# EXTRACT APPLICATION FILES
-# =============================================================================
-echo "Step 5: Extracting application files..."
-
-# Extract application (will overwrite existing files)
-unzip -o "/tmp/${PACKAGE_FILE}" -d ${APP_DIR}
+# Copy migration script
+mkdir -p "$APP_DIR/scripts"
+cp /tmp/food-ordering-system/scripts/migrate-dotnet-db.sh "$APP_DIR/scripts/" 2>/dev/null || true
+chmod +x "$APP_DIR/scripts/"*.sh 2>/dev/null || true
 
 # Set ownership
-chown -R ec2-user:ec2-user ${APP_DIR}
+chown -R ec2-user:ec2-user "$APP_DIR"
 
 # Make the executable file executable (if it exists)
 if [ -f "${APP_DIR}/FoodOrdering" ]; then
     chmod +x "${APP_DIR}/FoodOrdering"
 fi
 
-# Verify extraction
-if [ ! -f "${APP_DIR}/FoodOrdering.dll" ]; then
-    echo "ERROR: FoodOrdering.dll not found after extraction!"
-    exit 1
-fi
-
-echo "Application files extracted successfully"
+echo "Application files deployed successfully"
 ls -la ${APP_DIR}
 
 # =============================================================================
@@ -159,11 +175,36 @@ ls -la ${APP_DIR}
 # =============================================================================
 echo "Step 6: Initializing database schema..."
 
+# Parse endpoint for host and port
+DB_HOST="${DB_ENDPOINT%%:*}"
+DB_PORT="${DB_ENDPOINT##*:}"
+if [ "$DB_PORT" = "$DB_HOST" ]; then
+    DB_PORT="3306"
+fi
+
 # Check if database schema file exists
 if [ -f "${APP_DIR}/database-schema.sql" ]; then
-    echo "Applying database schema..."
-    mysql -h ${DB_ENDPOINT} -u ${DB_USERNAME} -p${DB_PASSWORD} < ${APP_DIR}/database-schema.sql
-    echo "Database schema applied successfully"
+    echo "Testing database connection..."
+    if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e "SELECT 1;" > /dev/null 2>&1; then
+        echo "Database connection successful!"
+        
+        # Create database if it doesn't exist
+        mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};"
+        
+        # Check if tables already exist
+        TABLE_COUNT=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -D "${DB_NAME}" -sN -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${DB_NAME}';" 2>/dev/null || echo "0")
+        
+        if [ "$TABLE_COUNT" -gt 0 ]; then
+            echo "Database already has $TABLE_COUNT tables. Skipping schema import."
+        else
+            echo "Applying database schema..."
+            mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" "${DB_NAME}" < ${APP_DIR}/database-schema.sql
+            echo "Database schema applied successfully"
+        fi
+    else
+        echo "WARNING: Could not connect to database. Schema not applied."
+        echo "You may need to run the migration manually later."
+    fi
 else
     echo "WARNING: database-schema.sql not found. You may need to apply it manually."
 fi
@@ -188,7 +229,7 @@ SyslogIdentifier=foodordering
 User=ec2-user
 Environment=ASPNETCORE_ENVIRONMENT=Production
 Environment=ASPNETCORE_URLS=http://localhost:5000
-Environment=ConnectionStrings__DefaultConnection="Server=${DB_ENDPOINT};Database=${DB_NAME};User=${DB_USERNAME};Password=${DB_PASSWORD};"
+Environment=ConnectionStrings__DefaultConnection="Server=${DB_HOST};Port=${DB_PORT};Database=${DB_NAME};User=${DB_USERNAME};Password=${DB_PASSWORD};"
 
 [Install]
 WantedBy=multi-user.target
@@ -256,7 +297,7 @@ systemctl daemon-reload
 systemctl enable foodordering
 systemctl start foodordering
 
-# Enable and start Nginx
+# Enable and restart Nginx
 systemctl enable nginx
 systemctl restart nginx
 
@@ -265,10 +306,10 @@ sleep 3
 
 # Check service statuses
 echo "Checking .NET application status..."
-systemctl status foodordering --no-pager
+systemctl status foodordering --no-pager || true
 
 echo "Checking Nginx status..."
-systemctl status nginx --no-pager
+systemctl status nginx --no-pager || true
 
 # =============================================================================
 # VERIFY DEPLOYMENT
@@ -298,12 +339,18 @@ fi
 
 # Test database connection
 echo "Testing database connection..."
-mysql -h ${DB_ENDPOINT} -u ${DB_USERNAME} -p${DB_PASSWORD} -e "SELECT 1;" > /dev/null 2>&1
-if [ $? -eq 0 ]; then
+if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e "SELECT 1;" > /dev/null 2>&1; then
     echo "✓ Database connection successful"
 else
     echo "✗ Database connection failed"
 fi
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+echo "Step 12: Cleaning up..."
+rm -rf /tmp/food-ordering-system
+rm -rf /tmp/dotnet-publish
 
 # =============================================================================
 # DEPLOYMENT SUMMARY
@@ -314,16 +361,17 @@ echo "DEPLOYMENT COMPLETED"
 echo "=========================================="
 echo "Timestamp: $(date)"
 echo "Application Directory: ${APP_DIR}"
+echo "Git Repository: ${GIT_REPO_URL}"
 echo "Database Endpoint: ${DB_ENDPOINT}"
 echo "Log File: ${LOG_FILE}"
 echo ""
 echo "Next Steps:"
-echo "1. Check application in browser: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)/"
+echo "1. Check application in browser: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo '<EC2_PUBLIC_IP>')/"
 echo "2. Review logs if needed:"
 echo "   - Deployment log: tail -f ${LOG_FILE}"
 echo "   - Application log: journalctl -u foodordering -f"
 echo "   - Nginx error log: tail -f /var/log/nginx/error.log"
-echo "   - Nginx access log: tail -f /var/log/nginx/access_log"
+echo "   - Nginx access log: tail -f /var/log/nginx/access.log"
 echo ""
 echo "Useful commands:"
 echo "  - Restart .NET app: sudo systemctl restart foodordering"

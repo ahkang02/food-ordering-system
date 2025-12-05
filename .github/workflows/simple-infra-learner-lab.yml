@@ -1,0 +1,94 @@
+name: Simple Infra (Learner Lab)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action to perform"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+      application_type:
+        description: "Application type to deploy"
+        required: true
+        default: "php"
+        type: choice
+        options:
+          - dotnet
+          - php
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    environment: development
+
+    env:
+      TF_IN_AUTOMATION: "true"
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+      TF_VAR_db_name: "foodordering"
+      TF_VAR_db_username: ${{ secrets.DB_USERNAME }}
+      TF_VAR_s3_bucket_name: ${{ vars.S3_BUCKET_NAME }}
+      TF_VAR_application_type: ${{ inputs.application_type }}
+      TF_VAR_key_name: "vockey"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.6.2
+
+      - name: Configure AWS credentials (Learner Lab)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Debug AWS identity
+        run: |
+          echo "AWS_SESSION_TOKEN set? -> ${AWS_SESSION_TOKEN:+yes}"
+          aws sts get-caller-identity || true
+
+      - name: Initialize OpenTofu
+        working-directory: terraform-simple
+        run: |
+          tofu init -input=false
+
+      - name: Terraform Plan
+        if: ${{ inputs.action == 'plan' }}
+        working-directory: terraform-simple
+        run: |
+          tofu plan -input=false
+
+      - name: Terraform Apply
+        if: ${{ inputs.action == 'apply' }}
+        working-directory: terraform-simple
+        run: |
+          tofu apply -input=false -auto-approve
+          echo ""
+          echo "========================================"
+          echo "DEPLOYMENT COMPLETE"
+          echo "========================================"
+          echo "EC2 Public IP: $(tofu output -raw ec2_public_ip)"
+          echo "RDS Endpoint: $(tofu output -raw rds_endpoint)"
+          echo "S3 Bucket: $(tofu output -raw s3_bucket_name)"
+          echo "App URL: $(tofu output -raw app_url)"
+          echo "========================================"
+
+      - name: Terraform Destroy
+        if: ${{ inputs.action == 'destroy' }}
+        working-directory: terraform-simple
+        run: |
+          tofu destroy -input=false -auto-approve

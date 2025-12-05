@@ -254,29 +254,7 @@ if [ -f /etc/httpd/conf.modules.d/00-base.conf ]; then
         echo "LoadModule rewrite_module modules/mod_rewrite.so" >> /etc/httpd/conf.modules.d/00-base.conf
 fi
 
-# DIRECTLY MODIFY httpd.conf to ensure AllowOverride All is set for /var/www/html
-# This is more reliable than relying solely on conf.d if the main config has restrictive defaults that take precedence
-if [ -f /etc/httpd/conf/httpd.conf ]; then
-    echo "Modifying httpd.conf to allow overrides..."
-    # Backup original
-    cp /etc/httpd/conf/httpd.conf /etc/httpd/conf/httpd.conf.bak
-    
-    # Find the Directory block for /var/www/html and change AllowOverride None to All
-    # This is a bit complex with sed, so we'll append a forceful block at the end of the file which usually wins
-    echo "" >> /etc/httpd/conf/httpd.conf
-    echo "# Added by user-data script for Food Ordering App" >> /etc/httpd/conf/httpd.conf
-    echo "<Directory \"/var/www/html\">" >> /etc/httpd/conf/httpd.conf
-    echo "    AllowOverride All" >> /etc/httpd/conf/httpd.conf
-    echo "    Require all granted" >> /etc/httpd/conf/httpd.conf
-    echo "</Directory>" >> /etc/httpd/conf/httpd.conf
-    
-    # Also ensure DirectoryIndex includes index.php
-    if ! grep -q "DirectoryIndex.*index.php" /etc/httpd/conf/httpd.conf; then
-        sed -i 's/DirectoryIndex index.html/DirectoryIndex index.php index.html/g' /etc/httpd/conf/httpd.conf
-    fi
-fi
-
-# Create a separate config file as well, just in case
+# Configure AllowOverride for .htaccess
 cat > /etc/httpd/conf.d/foodordering.conf << 'APACHE_CONF'
 <Directory "/var/www/html">
     Options Indexes FollowSymLinks

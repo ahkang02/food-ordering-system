@@ -6,9 +6,8 @@
 # Run this after SSH'ing into your EC2 instance
 #
 # Prerequisites:
-# 1. Upload php-food-ordering files to S3 bucket as php-published.zip
-# 2. Have RDS endpoint, database name, username, and password ready
-# 3. EC2 instance should have IAM role with S3 read access
+# 1. Have RDS endpoint, database name, username, and password ready
+# 2. EC2 instance should have internet access for git clone
 #
 # Usage:
 #   chmod +x deploy-php-manual.sh
@@ -20,7 +19,7 @@ set -euo pipefail
 # =============================================================================
 # CONFIGURATION - UPDATE THESE VALUES
 # =============================================================================
-S3_BUCKET_NAME="bucket-food-ordering-123456"  # Your S3 bucket name
+GIT_REPO_URL="https://github.com/ahkang02/food-ordering-system.git"  # Git repo URL
 DB_ENDPOINT="food-ordering-production-db.cpxf6cp2lxyo.us-east-1.rds.amazonaws.com"  # RDS endpoint
 DB_NAME="foodordering"
 DB_USERNAME="admin"
@@ -50,38 +49,20 @@ echo "Using package manager: $PKG_MGR"
 # INSTALL SYSTEM PACKAGES
 # =============================================================================
 echo "Step 1: Installing system packages..."
-$PKG_MGR -y update
+$PKG_MGR -y update || true
 
 # Install essential tools
-$PKG_MGR -y install wget curl unzip tar gzip
-
-# Install AWS CLI if not present
-if ! command -v aws > /dev/null 2>&1; then
-    echo "Installing AWS CLI..."
-    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-    unzip -q awscliv2.zip
-    ./aws/install
-    rm -rf aws awscliv2.zip
-fi
+$PKG_MGR -y install wget curl unzip tar gzip git
 
 # Install MySQL client for database operations
 echo "Installing MariaDB client..."
-$PKG_MGR -y install mariadb105-server
+$PKG_MGR -y install mariadb105-server || $PKG_MGR -y install mariadb-server || $PKG_MGR -y install mysql-server || true
 
-# Secure MariaDB installation (non-interactive)
-echo "Securing MariaDB installation..."
-# Start MariaDB service temporarily for secure installation
-systemctl start mariadb || true
-# Run mysql_secure_installation non-interactively
-mysql -e "UPDATE mysql.user SET Password=PASSWORD('') WHERE User='root';" 2>/dev/null || true
-mysql -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || true
-mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || true
-mysql -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || true
-mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || true
-mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
-# Stop local MariaDB as we're using RDS
-systemctl stop mariadb || true
-systemctl disable mariadb || true
+# Start MariaDB briefly to ensure mysql client works
+systemctl start mariadb || systemctl start mysql || true
+# Stop it since we're using RDS
+systemctl stop mariadb || systemctl stop mysql || true
+systemctl disable mariadb || systemctl disable mysql || true
 
 # =============================================================================
 # INSTALL PHP AND APACHE
@@ -93,11 +74,11 @@ $PKG_MGR -y install httpd
 
 # Install PHP and required extensions
 echo "Installing PHP and extensions..."
-$PKG_MGR -y install php php-cli php-mysqlnd php-pdo php-mbstring php-json php-xml
+$PKG_MGR -y install php php-cli php-mysqlnd php-pdo php-mbstring php-json php-xml || true
 
 # Verify installations
-php --version
-httpd -v
+php --version || echo "PHP not installed correctly"
+httpd -v || echo "Apache not installed correctly"
 
 # =============================================================================
 # CONFIGURE APACHE
@@ -112,63 +93,70 @@ if [ -f /etc/httpd/conf/httpd.conf ]; then
     cp /etc/httpd/conf/httpd.conf /etc/httpd/conf/httpd.conf.backup
 fi
 
-# Enable mod_rewrite for .htaccess support
-cat >> /etc/httpd/conf/httpd.conf <<'APACHE_EOF'
-
+# Create a separate config file for the food ordering app (better practice)
+cat > /etc/httpd/conf.d/foodordering.conf <<'APACHE_EOF'
 # Food Ordering Application Configuration
 <Directory "/var/www/html">
+    Options Indexes FollowSymLinks
     AllowOverride All
     Require all granted
 </Directory>
 APACHE_EOF
 
+echo "Apache configured for mod_rewrite and .htaccess support"
+
 # =============================================================================
-# DOWNLOAD APPLICATION FROM S3
+# CLONE APPLICATION FROM GIT
 # =============================================================================
-echo "Step 4: Downloading application from S3..."
+echo "Step 4: Cloning application from Git..."
 
 cd /tmp
 
-# Try to get the latest deployment package
-LATEST_DEPLOYMENT=$(aws s3 ls s3://${S3_BUCKET_NAME}/php-deployments/ --recursive | sort | tail -n 1 | awk '{print $4}' || true)
+# Remove any previous clone
+rm -rf food-ordering-system
 
-if [ -n "$LATEST_DEPLOYMENT" ]; then
-    echo "Found latest deployment: $LATEST_DEPLOYMENT"
-    aws s3 cp "s3://${S3_BUCKET_NAME}/${LATEST_DEPLOYMENT}" ./deployment-package.zip
-    PACKAGE_FILE="deployment-package.zip"
-else
-    echo "No deployment found in php-deployments/, trying generic artifact..."
-    aws s3 cp "s3://${S3_BUCKET_NAME}/php-published.zip" ./php-published.zip
-    PACKAGE_FILE="php-published.zip"
-fi
+# Clone the repository
+echo "Cloning from: $GIT_REPO_URL"
+git clone "$GIT_REPO_URL" food-ordering-system
 
-# =============================================================================
-# EXTRACT APPLICATION FILES
-# =============================================================================
-echo "Step 5: Extracting application files..."
-
-# Extract application (will overwrite existing files)
-unzip -o "/tmp/${PACKAGE_FILE}" -d ${DOCROOT}
-
-# Verify extraction
-if [ ! -f "${DOCROOT}/index.php" ]; then
-    echo "ERROR: index.php not found after extraction!"
+# Verify clone
+if [ ! -d "food-ordering-system/php-food-ordering" ]; then
+    echo "ERROR: git clone failed or php-food-ordering directory not found!"
     exit 1
 fi
 
-echo "Application files extracted successfully"
+echo "Git clone successful"
+ls -la food-ordering-system/
+
+# =============================================================================
+# DEPLOY APPLICATION FILES
+# =============================================================================
+echo "Step 5: Deploying application files..."
+
+# Clear existing content (keep Apache default if any)
+rm -rf ${DOCROOT}/*
+
+# Copy PHP application files to document root
+cp -r food-ordering-system/php-food-ordering/* ${DOCROOT}/
+
+# Also copy the scripts directory for migrations
+mkdir -p ${DOCROOT}/scripts
+cp food-ordering-system/scripts/migrate-php-db.sh ${DOCROOT}/scripts/
+chmod +x ${DOCROOT}/scripts/migrate-php-db.sh
+
+# Verify extraction
+if [ ! -f "${DOCROOT}/index.php" ]; then
+    echo "ERROR: index.php not found after deployment!"
+    exit 1
+fi
+
+echo "Application files deployed successfully"
 ls -la ${DOCROOT}
 
 # =============================================================================
 # CONFIGURE DATABASE CONNECTION
 # =============================================================================
 echo "Step 6: Configuring database connection..."
-
-S3_BUCKET_NAME="bucket-food-ordering-123456"  # Your S3 bucket name
-DB_ENDPOINT="food-ordering-production-db.cpxf6cp2lxyo.us-east-1.rds.amazonaws.com"  # RDS endpoint
-DB_NAME="foodordering"
-DB_USERNAME="admin"
-DB_PASSWORD="Admin1234!!"  # Your RDS password
 
 # Create api directory if it doesn't exist
 mkdir -p ${DOCROOT}/api
@@ -177,10 +165,11 @@ mkdir -p ${DOCROOT}/api
 cat > ${DOCROOT}/api/db_config.php <<PHPEOF
 <?php
 // Database configuration - Auto-generated by deployment script
-\$_ENV['DB_HOST'] = 'food-ordering-production-db.cpxf6cp2lxyo.us-east-1.rds.amazonaws.com';
-\$_ENV['DB_NAME'] = 'foodordering';
-\$_ENV['DB_USER'] = 'admin';
-\$_ENV['DB_PASS'] = 'Admin1234!!';
+// Generated at: $(date)
+\$_ENV['DB_HOST'] = '${DB_ENDPOINT}';
+\$_ENV['DB_NAME'] = '${DB_NAME}';
+\$_ENV['DB_USER'] = '${DB_USERNAME}';
+\$_ENV['DB_PASS'] = '${DB_PASSWORD}';
 ?>
 PHPEOF
 
@@ -191,11 +180,36 @@ echo "Database configuration created"
 # =============================================================================
 echo "Step 7: Initializing database schema..."
 
+# Parse endpoint for host and port
+DB_HOST="${DB_ENDPOINT%%:*}"
+DB_PORT="${DB_ENDPOINT##*:}"
+if [ "$DB_PORT" = "$DB_HOST" ]; then
+    DB_PORT="3306"
+fi
+
 # Check if database schema file exists
-if [ -f "database-schema.sql" ]; then
-    echo "Applying database schema..."
-    mysql -h food-ordering-production-db.cpxf6cp2lxyo.us-east-1.rds.amazonaws.com -u admin -p Admin1234!! < ${DOCROOT}/database-schema.sql
-    echo "Database schema applied successfully"
+if [ -f "${DOCROOT}/database-schema.sql" ]; then
+    echo "Testing database connection..."
+    if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e "SELECT 1;" > /dev/null 2>&1; then
+        echo "Database connection successful!"
+        
+        # Create database if it doesn't exist
+        mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};"
+        
+        # Check if tables already exist
+        TABLE_COUNT=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -D "${DB_NAME}" -sN -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${DB_NAME}';" 2>/dev/null || echo "0")
+        
+        if [ "$TABLE_COUNT" -gt 0 ]; then
+            echo "Database already has $TABLE_COUNT tables. Skipping schema import."
+        else
+            echo "Applying database schema..."
+            mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" "${DB_NAME}" < ${DOCROOT}/database-schema.sql
+            echo "Database schema applied successfully"
+        fi
+    else
+        echo "WARNING: Could not connect to database. Schema not applied."
+        echo "You may need to run the migration manually later."
+    fi
 else
     echo "WARNING: database-schema.sql not found. You may need to apply it manually."
 fi
@@ -212,9 +226,15 @@ chown -R apache:apache ${DOCROOT}
 find ${DOCROOT} -type d -exec chmod 755 {} \;
 find ${DOCROOT} -type f -exec chmod 644 {} \;
 
+# Make sure scripts are executable
+chmod +x ${DOCROOT}/scripts/*.sh 2>/dev/null || true
+
 # Make sure .htaccess is readable
 if [ -f "${DOCROOT}/.htaccess" ]; then
     chmod 644 ${DOCROOT}/.htaccess
+    echo ".htaccess file found and permissions set"
+else
+    echo "WARNING: .htaccess file not found!"
 fi
 
 # =============================================================================
@@ -238,11 +258,11 @@ echo "Step 10: Starting Apache web server..."
 # Enable Apache to start on boot
 systemctl enable httpd
 
-# Start Apache
-systemctl start httpd
+# Start (or restart) Apache to load new config
+systemctl restart httpd
 
 # Check status
-systemctl status httpd --no-pager
+systemctl status httpd --no-pager || true
 
 # =============================================================================
 # VERIFY DEPLOYMENT
@@ -265,17 +285,24 @@ php -r "echo 'PHP is working\n';" || echo "PHP test failed"
 
 # Test database connection
 php -r "
-\$host = '${DB_ENDPOINT}';
+\$host = '${DB_HOST}';
+\$port = '${DB_PORT}';
 \$db = '${DB_NAME}';
 \$user = '${DB_USERNAME}';
 \$pass = '${DB_PASSWORD}';
 try {
-    \$pdo = new PDO(\"mysql:host=\$host;dbname=\$db\", \$user, \$pass);
+    \$pdo = new PDO(\"mysql:host=\$host;port=\$port;dbname=\$db\", \$user, \$pass);
     echo \"✓ Database connection successful\n\";
 } catch (PDOException \$e) {
     echo \"✗ Database connection failed: \" . \$e->getMessage() . \"\n\";
 }
 " || echo "Database connection test failed"
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+echo "Step 12: Cleaning up..."
+rm -rf /tmp/food-ordering-system
 
 # =============================================================================
 # DEPLOYMENT SUMMARY
@@ -286,11 +313,12 @@ echo "DEPLOYMENT COMPLETED"
 echo "=========================================="
 echo "Timestamp: $(date)"
 echo "Document Root: ${DOCROOT}"
+echo "Git Repository: ${GIT_REPO_URL}"
 echo "Database Endpoint: ${DB_ENDPOINT}"
 echo "Log File: ${LOG_FILE}"
 echo ""
 echo "Next Steps:"
-echo "1. Check application in browser: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)/"
+echo "1. Check application in browser: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo '<EC2_PUBLIC_IP>')/"
 echo "2. Review logs if needed:"
 echo "   - Deployment log: tail -f ${LOG_FILE}"
 echo "   - Apache error log: tail -f /var/log/httpd/error_log"
@@ -299,5 +327,5 @@ echo ""
 echo "Useful commands:"
 echo "  - Restart Apache: sudo systemctl restart httpd"
 echo "  - Check Apache status: sudo systemctl status httpd"
-echo "  - View PHP info: echo '<?php phpinfo(); ?>' | sudo tee ${DOCROOT}/info.php"
+echo "  - Run migration manually: sudo ${DOCROOT}/scripts/migrate-php-db.sh '${DB_ENDPOINT}' '${DB_USERNAME}' '<PASSWORD>'"
 echo "=========================================="
