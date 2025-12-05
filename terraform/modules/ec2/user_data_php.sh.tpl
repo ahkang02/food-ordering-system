@@ -78,6 +78,86 @@ mkdir -p "$DOCROOT/api"
 mkdir -p "$DOCROOT/scripts"
 
 # =============================================================================
+# CREATE MIGRATION SCRIPT (embedded so it exists at boot time)
+# =============================================================================
+echo "Creating embedded migration script..."
+cat > "$DOCROOT/scripts/migrate-php-db.sh" << 'MIGRATE_SCRIPT_EOF'
+#!/bin/bash
+set -e
+
+echo "=== PHP Database Migration Script ==="
+
+# Accept command-line arguments OR environment variables
+if [ -n "$1" ]; then
+    DB_ENDPOINT="$1"
+fi
+if [ -n "$2" ]; then
+    DB_USERNAME="$2"
+fi
+if [ -n "$3" ]; then
+    DB_PASSWORD="$3"
+fi
+
+# Check required variables
+if [ -z "$DB_ENDPOINT" ] || [ -z "$DB_USERNAME" ] || [ -z "$DB_PASSWORD" ]; then
+    echo "Error: Required database credentials not set"
+    echo "Usage: $0 <DB_ENDPOINT> <DB_USERNAME> <DB_PASSWORD>"
+    exit 1
+fi
+
+DB_NAME="foodordering"
+SCHEMA_FILE="/var/www/html/database-schema.sql"
+
+echo "Database: $DB_NAME"
+echo "Endpoint: $DB_ENDPOINT"
+
+# Check if schema file exists
+if [ ! -f "$SCHEMA_FILE" ]; then
+    echo "Warning: Schema file not found at $SCHEMA_FILE"
+    echo "Skipping schema import - will be done after deployment"
+    exit 0
+fi
+
+# Parse endpoint
+DB_HOST="${DB_ENDPOINT%%:*}"
+DB_PORT="${DB_ENDPOINT##*:}"
+if [ "$DB_PORT" = "$DB_HOST" ]; then
+    DB_PORT="3306"
+fi
+
+echo "Host: $DB_HOST, Port: $DB_PORT"
+
+# Test database connection
+echo "Testing database connection..."
+if ! mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e "SELECT 1;" > /dev/null 2>&1; then
+    echo "Error: Cannot connect to database"
+    exit 1
+fi
+
+echo "Connection successful!"
+
+# Create database if it doesn't exist
+echo "Creating database if not exists..."
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS $DB_NAME;"
+
+# Check if tables already exist
+TABLE_COUNT=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -D "$DB_NAME" -sN -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DB_NAME';")
+
+if [ "$TABLE_COUNT" -gt 0 ]; then
+    echo "Database already has $TABLE_COUNT tables. Skipping schema import."
+else
+    echo "Importing schema from $SCHEMA_FILE..."
+    mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_NAME" < "$SCHEMA_FILE"
+    echo "Schema imported successfully!"
+fi
+
+echo "=== Migration completed ==="
+MIGRATE_SCRIPT_EOF
+
+chmod +x "$DOCROOT/scripts/migrate-php-db.sh"
+echo "Migration script created at $DOCROOT/scripts/migrate-php-db.sh"
+
+# =============================================================================
 # DEPLOY APPLICATION FROM S3
 # =============================================================================
 echo "Checking for latest deployment in S3..."
