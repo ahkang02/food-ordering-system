@@ -119,8 +119,8 @@ if [ ! -f "$SCHEMA_FILE" ]; then
 fi
 
 # Parse endpoint
-DB_HOST="${DB_ENDPOINT%%:*}"
-DB_PORT="${DB_ENDPOINT##*:}"
+DB_HOST="$${DB_ENDPOINT%%:*}"
+DB_PORT="$${DB_ENDPOINT##*:}"
 if [ "$DB_PORT" = "$DB_HOST" ]; then
     DB_PORT="3306"
 fi
