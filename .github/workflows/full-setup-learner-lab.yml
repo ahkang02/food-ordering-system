@@ -146,6 +146,10 @@ jobs:
           cp -r php-food-ordering/* deployment-temp/
           mkdir -p deployment-temp/scripts
           cp scripts/migrate-php-db.sh deployment-temp/scripts/
+          
+          echo "Debug: Listing deployment-temp contents"
+          ls -R deployment-temp
+          
           cd deployment-temp
           zip -r ../php-deployment-package.zip .
           cd ..
@@ -259,6 +263,7 @@ jobs:
             --arg db_user "$DB_USERNAME" \
             --arg db_pass "$DB_PASSWORD" \
             '{commands: [
+              "ls -R /var/www/html",
               "chmod +x /var/www/html/scripts/migrate-php-db.sh",
               ("/var/www/html/scripts/migrate-php-db.sh \"" + $db_endpoint + "\" \"" + $db_user + "\" \"" + $db_pass + "\"")
             ]}' > "$PARAMS_FILE"
