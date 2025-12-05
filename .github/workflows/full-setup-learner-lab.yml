@@ -225,7 +225,8 @@ jobs:
               --arg db_user "$DB_USERNAME" \
               --arg db_pass "$DB_PASSWORD" \
               '{commands: [
-                "cd /var/www/html",
+                "sudo mkdir -p /var/www/html",
+                "cd /var/www/html || { echo \"Failed to cd to /var/www/html\"; exit 1; }",
                 ("aws s3 cp s3://" + $bucket + "/" + $key + " ./deployment-package.zip"),
                 "sudo unzip -o deployment-package.zip",
                 ("sudo sed -i \"s|__DB_ENDPOINT__|" + $db_endpoint + "|g\" api/db_config.php"),
