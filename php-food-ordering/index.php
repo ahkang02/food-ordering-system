@@ -21,7 +21,10 @@ if (strpos($path, '/api/menu') === 0) {
     exit;
 }
 
-// Frontend routing
+// Frontend routing - load database config first, then service
+if (file_exists(__DIR__ . '/api/db_config.php')) {
+    require_once __DIR__ . '/api/db_config.php';
+}
 require_once __DIR__ . '/api/db_service.php';
 $dataService = new DatabaseService();
 
