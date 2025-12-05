@@ -55,6 +55,8 @@ echo "Installing PHP and Apache..."
 
 # Install PHP + Apache
 install_if_missing php php
+install_if_missing php-mysqlnd php-mysqlnd
+install_if_missing php-pdo php-pdo
 install_if_missing httpd httpd || install_if_missing apache2 apache2 || true
 
 # Install MySQL/MariaDB client for database migrations
