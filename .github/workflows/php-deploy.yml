@@ -112,7 +112,8 @@ jobs:
             --arg db_pass "$DB_PASSWORD" \
             '{commands: [
               "echo \"Starting deployment...\"",
-              "cd /var/www/html",
+              "sudo mkdir -p /var/www/html",
+              "cd /var/www/html || { echo \"Failed to cd to /var/www/html\"; exit 1; }",
               "echo \"Current directory: $(pwd)\"",
               "echo \"Downloading from S3...\"",
               ("sudo aws s3 cp s3://" + $bucket + "/" + $key + " ./deployment-package.zip"),

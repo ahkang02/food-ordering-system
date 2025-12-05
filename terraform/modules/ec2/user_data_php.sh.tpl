@@ -60,8 +60,16 @@ install_if_missing php-pdo php-pdo
 install_if_missing httpd httpd || install_if_missing apache2 apache2 || true
 
 # Install MySQL/MariaDB client for database migrations
-echo "Installing MySQL client..."
-$PKG_MGR -y install mariadb105 || $PKG_MGR -y install mysql || $PKG_MGR -y install mariadb || true
+# Install MySQL/MariaDB client and server for database migrations
+echo "Installing MariaDB server and client..."
+# Install mariadb105-server explicitly as requested to ensure all tools are present
+$PKG_MGR -y install mariadb105-server || $PKG_MGR -y install mariadb-server || $PKG_MGR -y install mysql-server || true
+
+# Start MariaDB service (client might need socket or config present)
+systemctl enable --now mariadb || systemctl enable --now mysql || true
+
+# Secure installation (optional but good practice, though we mostly need the client)
+# We just need it running so the 'mysql' command works reliably if it depends on local configs
 
 # Set document root
 DOCROOT=/var/www/html
