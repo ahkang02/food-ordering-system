@@ -140,6 +140,29 @@ chown -R apache:apache "$DOCROOT" || chown -R www-data:www-data "$DOCROOT" || tr
 chmod -R 755 "$DOCROOT"
 
 # =============================================================================
+# CONFIGURE APACHE FOR URL REWRITING
+# =============================================================================
+echo "Configuring Apache for mod_rewrite..."
+
+# Enable mod_rewrite (Amazon Linux 2023 / RHEL)
+if [ -f /etc/httpd/conf.modules.d/00-base.conf ]; then
+    # mod_rewrite should already be enabled, but ensure it
+    grep -q "LoadModule rewrite_module" /etc/httpd/conf.modules.d/00-base.conf || \
+        echo "LoadModule rewrite_module modules/mod_rewrite.so" >> /etc/httpd/conf.modules.d/00-base.conf
+fi
+
+# Configure AllowOverride for .htaccess
+cat > /etc/httpd/conf.d/foodordering.conf << 'APACHE_CONF'
+<Directory "/var/www/html">
+    Options Indexes FollowSymLinks
+    AllowOverride All
+    Require all granted
+</Directory>
+APACHE_CONF
+
+echo "Apache configured for URL rewriting"
+
+# =============================================================================
 # START WEB SERVER
 # =============================================================================
 echo "Starting Apache web server..."
