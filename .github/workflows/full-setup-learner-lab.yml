@@ -106,7 +106,7 @@ jobs:
         id: outputs
         working-directory: terraform
         run: |
-          echo "db_endpoint=$(tofu output -raw db_endpoint)" >> $GITHUB_OUTPUT
+          echo "db_endpoint=$(tofu output -raw rds_endpoint)" >> $GITHUB_OUTPUT
           echo "alb_dns=$(tofu output -raw alb_dns_name)" >> $GITHUB_OUTPUT
           echo "s3_bucket=$(tofu output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
           echo "asg_name=$(tofu output -raw asg_name)" >> $GITHUB_OUTPUT
