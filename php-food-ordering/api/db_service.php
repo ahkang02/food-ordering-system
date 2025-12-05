@@ -5,14 +5,23 @@ class DatabaseService {
 
     public function __construct() {
         // Database configuration - update these for your RDS instance
-        $host = getenv('DB_HOST') ?: 'localhost';
+        $hostRaw = getenv('DB_HOST') ?: 'localhost';
         $dbname = getenv('DB_NAME') ?: 'foodordering';
         $username = getenv('DB_USER') ?: 'root';
         $password = getenv('DB_PASS') ?: '';
 
+        // Parse host:port format (e.g., "rds-endpoint:3306")
+        if (strpos($hostRaw, ':') !== false) {
+            list($host, $port) = explode(':', $hostRaw, 2);
+        } else {
+            $host = $hostRaw;
+            $port = 3306;
+        }
+
         try {
+            $dsn = "mysql:host=$host;port=$port;dbname=$dbname;charset=utf8mb4";
             $this->conn = new PDO(
-                "mysql:host=$host;dbname=$dbname;charset=utf8mb4",
+                $dsn,
                 $username,
                 $password,
                 [
@@ -23,7 +32,7 @@ class DatabaseService {
             );
         } catch (PDOException $e) {
             error_log("Database connection failed: " . $e->getMessage());
-            throw new Exception("Database connection failed");
+            throw new Exception("Database connection failed: " . $e->getMessage());
         }
     }
 
