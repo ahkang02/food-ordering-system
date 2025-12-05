@@ -247,8 +247,9 @@ echo "Apache configured for URL rewriting"
 # =============================================================================
 echo "Starting Apache web server..."
 
-# Start web server
-systemctl enable --now httpd || systemctl enable --now apache2 || true
+# Enable and restart (not just start) to ensure new config is loaded
+systemctl enable httpd || systemctl enable apache2 || true
+systemctl restart httpd || systemctl restart apache2 || true
 
 echo "user-data script finished"
 
